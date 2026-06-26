@@ -9,6 +9,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, RunEvent};
+use tauri_plugin_updater::UpdaterExt;
 
 const PORT_START: u16 = 49152;
 const PORT_END: u16 = 60999;
@@ -66,6 +67,15 @@ struct VersionStatus {
     error: Option<String>,
 }
 
+#[derive(Serialize)]
+struct DesktopUpdateInfo {
+    available: bool,
+    current_version: String,
+    version: Option<String>,
+    date: Option<String>,
+    body: Option<String>,
+}
+
 impl Drop for SolonState {
     fn drop(&mut self) {
         cleanup_soloncode_process(self);
@@ -113,7 +123,9 @@ fn workspace_name(path: Option<&str>) -> String {
     .unwrap_or_else(|| "用户目录".to_string())
 }
 
-fn normalize_workspace(workspace: Option<String>) -> Result<(String, Option<String>, PathBuf, String), String> {
+fn normalize_workspace(
+    workspace: Option<String>,
+) -> Result<(String, Option<String>, PathBuf, String), String> {
     let workspace_input = workspace
         .as_ref()
         .map(|path| path.trim().to_string())
@@ -124,7 +136,10 @@ fn normalize_workspace(workspace: Option<String>) -> Result<(String, Option<Stri
         .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
 
     if !workspace_path.is_dir() {
-        return Err(format!("工作区不存在或不是目录: {}", workspace_path.display()));
+        return Err(format!(
+            "工作区不存在或不是目录: {}",
+            workspace_path.display()
+        ));
     }
 
     let normalized = workspace_path
@@ -233,7 +248,12 @@ fn emit_workspace_log(
 fn parse_soloncode_version(output: &str) -> Option<String> {
     output
         .split_whitespace()
-        .find(|part| part.trim_start_matches('v').chars().next().is_some_and(|ch| ch.is_ascii_digit()))
+        .find(|part| {
+            part.trim_start_matches('v')
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_digit())
+        })
         .map(|part| part.trim().to_string())
 }
 
@@ -296,7 +316,10 @@ fn latest_versions() -> Result<RemoteVersionInfo, String> {
         .map_err(|e| format!("获取最新版本失败: {}", e))?;
 
     if !output.status.success() {
-        return Err(format!("获取最新版本失败 (exit code: {:?})", output.status.code()));
+        return Err(format!(
+            "获取最新版本失败 (exit code: {:?})",
+            output.status.code()
+        ));
     }
 
     serde_json::from_slice::<RemoteVersionInfo>(&output.stdout)
@@ -371,6 +394,75 @@ fn check_versions_blocking() -> VersionStatus {
             error: Some(error),
         },
     }
+}
+
+/// 检查桌面客户端是否有 Tauri 自动更新。
+#[tauri::command]
+async fn check_desktop_update(app: tauri::AppHandle) -> Result<DesktopUpdateInfo, String> {
+    let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let update = app
+        .updater()
+        .map_err(|e| format!("初始化自动更新失败: {}", e))?
+        .check()
+        .await
+        .map_err(|e| format!("检查客户端更新失败: {}", e))?;
+
+    Ok(match update {
+        Some(update) => DesktopUpdateInfo {
+            available: true,
+            current_version: update.current_version,
+            version: Some(update.version),
+            date: update.date.map(|date| date.to_string()),
+            body: update.body,
+        },
+        None => DesktopUpdateInfo {
+            available: false,
+            current_version,
+            version: None,
+            date: None,
+            body: None,
+        },
+    })
+}
+
+/// 下载并安装桌面客户端更新。安装完成后，用户重启应用即可进入新版本。
+#[tauri::command]
+async fn install_desktop_update(app: tauri::AppHandle) -> Result<String, String> {
+    let update = app
+        .updater()
+        .map_err(|e| format!("初始化自动更新失败: {}", e))?
+        .check()
+        .await
+        .map_err(|e| format!("检查客户端更新失败: {}", e))?
+        .ok_or_else(|| "当前已是最新版本".to_string())?;
+
+    let version = update.version.clone();
+    let app_for_progress = app.clone();
+    update
+        .download_and_install(
+            move |chunk_length, content_length| {
+                let message = match content_length {
+                    Some(total) => {
+                        format!("⬇️ 正在下载客户端更新: {} / {} bytes", chunk_length, total)
+                    }
+                    None => format!("⬇️ 正在下载客户端更新: {} bytes", chunk_length),
+                };
+                let _ = app_for_progress.emit("soloncode-output", message);
+            },
+            || {
+                let _ = app.emit("soloncode-output", "✅ 客户端更新下载完成，正在安装...");
+            },
+        )
+        .await
+        .map_err(|e| format!("安装客户端更新失败: {}", e))?;
+
+    Ok(format!("客户端更新 {} 已安装，重启应用后生效", version))
+}
+
+/// 退出应用，用于客户端更新安装完成后让用户手动重启。
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 /// 选择一个工作区目录
@@ -495,7 +587,9 @@ fn run_shell_with_live_output(
         })
     });
 
-    let status = child.wait().map_err(|e| format!("等待命令结束失败: {}", e))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("等待命令结束失败: {}", e))?;
     if let Some(handle) = stdout_handle {
         let _ = handle.join();
     }
@@ -587,8 +681,8 @@ fn start_soloncode(
     }
 
     // 检查是否已安装，获取完整路径
-    let soloncode_path = find_soloncode_path()
-        .ok_or("SolonCode CLI 未安装，请先点击「安装 CLI」")?;
+    let soloncode_path =
+        find_soloncode_path().ok_or("SolonCode CLI 未安装，请先点击「安装 CLI」")?;
 
     let used_ports: HashSet<u16> = state
         .processes
@@ -600,8 +694,20 @@ fn start_soloncode(
     let port = pick_available_port(&used_ports)?;
     let url = format!("http://localhost:{}/", port);
 
-    emit_workspace_log(&app, &workspace_key, &name, Some(port), format!("🚀 启动 SolonCode Web (端口: {})", port));
-    emit_workspace_log(&app, &workspace_key, &name, Some(port), format!("📁 实际启动目录: {}", workspace_path.display()));
+    emit_workspace_log(
+        &app,
+        &workspace_key,
+        &name,
+        Some(port),
+        format!("🚀 启动 SolonCode Web (端口: {})", port),
+    );
+    emit_workspace_log(
+        &app,
+        &workspace_key,
+        &name,
+        Some(port),
+        format!("📁 实际启动目录: {}", workspace_path.display()),
+    );
 
     // 构建 shell 环境 PATH
     let mut path_env = std::env::var("PATH").unwrap_or_default();
@@ -659,7 +765,13 @@ fn start_soloncode(
         .map_err(|e| format!("启动失败: {} (路径: {})", e, soloncode_path))?;
     let process_group_id = child.id();
 
-    emit_workspace_log(&app, &workspace_key, &name, Some(port), "✅ 进程已启动，等待服务就绪...");
+    emit_workspace_log(
+        &app,
+        &workspace_key,
+        &name,
+        Some(port),
+        "✅ 进程已启动，等待服务就绪...",
+    );
 
     // 转发 stdout 日志
     let stdout = child.stdout.take().unwrap();
@@ -668,7 +780,13 @@ fn start_soloncode(
     let stdout_name = name.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            emit_workspace_log(&app_out, &stdout_workspace_key, &stdout_name, Some(port), line);
+            emit_workspace_log(
+                &app_out,
+                &stdout_workspace_key,
+                &stdout_name,
+                Some(port),
+                line,
+            );
         }
     });
 
@@ -679,7 +797,13 @@ fn start_soloncode(
     let stderr_name = name.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            emit_workspace_log(&app_err, &stderr_workspace_key, &stderr_name, Some(port), format!("[stderr] {}", line));
+            emit_workspace_log(
+                &app_err,
+                &stderr_workspace_key,
+                &stderr_name,
+                Some(port),
+                format!("[stderr] {}", line),
+            );
         }
     });
 
@@ -718,20 +842,22 @@ fn start_soloncode(
         for i in 0..60 {
             if TcpStream::connect(&addr).is_ok() {
                 ready = true;
-                emit_workspace_log(&app_nav, &failed_workspace_key, &ready_payload.name, Some(port), format!("✅ 端口 {} 就绪 ({}秒)", port, i / 2));
+                emit_workspace_log(
+                    &app_nav,
+                    &failed_workspace_key,
+                    &ready_payload.name,
+                    Some(port),
+                    format!("✅ 端口 {} 就绪 ({}秒)", port, i / 2),
+                );
                 break;
             }
             let exited = {
                 let state = app_nav.state::<SolonState>();
-                state
-                    .processes
-                    .lock()
-                    .ok()
-                    .and_then(|mut guard| {
-                        guard
-                            .get_mut(&failed_workspace_key)
-                            .map(|process| process.child.try_wait().ok().flatten())
-                    })
+                state.processes.lock().ok().and_then(|mut guard| {
+                    guard
+                        .get_mut(&failed_workspace_key)
+                        .map(|process| process.child.try_wait().ok().flatten())
+                })
             };
             let Some(exited) = exited else {
                 return;
@@ -741,7 +867,13 @@ fn start_soloncode(
                 break;
             }
             if i % 4 == 0 {
-                emit_workspace_log(&app_nav, &failed_workspace_key, &ready_payload.name, Some(port), format!("⏳ 等待端口 {}... ({}s)", port, i / 2));
+                emit_workspace_log(
+                    &app_nav,
+                    &failed_workspace_key,
+                    &ready_payload.name,
+                    Some(port),
+                    format!("⏳ 等待端口 {}... ({}s)", port, i / 2),
+                );
             }
             std::thread::sleep(Duration::from_millis(500));
         }
@@ -755,8 +887,15 @@ fn start_soloncode(
             }
             let _ = app_nav.emit("soloncode-ready", &ready_payload);
         } else {
-            let message = failed_message.unwrap_or_else(|| format!("❌ 端口 {} 在30秒内未就绪", port));
-            emit_workspace_log(&app_nav, &failed_workspace_key, &ready_payload.name, Some(port), &message);
+            let message =
+                failed_message.unwrap_or_else(|| format!("❌ 端口 {} 在30秒内未就绪", port));
+            emit_workspace_log(
+                &app_nav,
+                &failed_workspace_key,
+                &ready_payload.name,
+                Some(port),
+                &message,
+            );
             let state = app_nav.state::<SolonState>();
             if let Ok(mut guard) = state.processes.lock() {
                 if let Some(process) = guard.remove(&failed_workspace_key) {
@@ -789,7 +928,13 @@ fn stop_soloncode(
     if let Some(process) = guard.remove(&workspace_key) {
         kill_child_tree(process.child, process.process_group_id);
         let message = "🛑 停止 SolonCode Web".to_string();
-        emit_workspace_log(&app, &workspace_key, &name, Some(process.port), message.clone());
+        emit_workspace_log(
+            &app,
+            &workspace_key,
+            &name,
+            Some(process.port),
+            message.clone(),
+        );
         Ok(message)
     } else {
         Err(format!("{} 未在运行", name))
@@ -812,12 +957,15 @@ fn go_home(app: tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SolonState {
             processes: Mutex::new(HashMap::new()),
         })
         .invoke_handler(tauri::generate_handler![
             check_soloncode,
             check_versions,
+            check_desktop_update,
+            install_desktop_update,
             pick_workspace,
             home_workspace_path,
             reveal_workspace,
@@ -827,6 +975,7 @@ pub fn run() {
             start_soloncode,
             stop_soloncode,
             go_home,
+            quit_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

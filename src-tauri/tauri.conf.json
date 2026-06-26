@@ -1,7 +1,7 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "SolonCode",
-    "version": "0.12.0",
+    "version": "0.12.1",
     "identifier": "cn.duozai.soloncode",
     "build": {
         "frontendDist": "../src"
@@ -26,9 +26,19 @@
     "bundle": {
         "active": true,
         "targets": "all",
+        "createUpdaterArtifacts": true,
         "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
         "category": "DeveloperTool",
         "shortDescription": "SolonCode Desktop - AI Coding Assistant",
         "longDescription": "SolonCode Desktop is an AI-powered coding assistant that runs locally."
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERFRDZERTQzREVCNkZGM0UKUldRKy83YmVROTdXM2p6RThVOHBLNGxqTUdaQXNmUkYvOThNWG43Z0JKaWtmZHBqb3VlRzBudzIK",
+            "endpoints": ["https://github.com/visduo/soloncode-desktop-community/releases/latest/download/latest.json"],
+            "windows": {
+                "installMode": "passive"
+            }
+        }
     }
 }
