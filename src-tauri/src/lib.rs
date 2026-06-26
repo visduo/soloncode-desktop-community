@@ -337,7 +337,7 @@ async fn check_soloncode() -> bool {
         .unwrap_or(false)
 }
 
-/// 获取 CLI 和桌面客户端版本状态
+/// 获取 CLI 和 Desktop 版本状态
 #[tauri::command]
 async fn check_versions() -> VersionStatus {
     tauri::async_runtime::spawn_blocking(check_versions_blocking)
@@ -448,7 +448,7 @@ fn reveal_workspace(workspace: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
-/// 打开桌面客户端下载页面
+/// 打开 Desktop 下载页面
 #[tauri::command]
 fn open_desktop_download_page() -> Result<(), String> {
     open_url("https://github.com/visduo/soloncode-desktop-community")

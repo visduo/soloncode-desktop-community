@@ -181,7 +181,7 @@ function updateVersionFooter(info) {
         info.cli_update_available,
         Boolean(info.installed)
     )}`;
-    desktopVersion.textContent = `客户端：${formatVersion(
+    desktopVersion.textContent = `Desktop：${formatVersion(
         info.desktop_current,
         info.desktop_latest,
         info.desktop_update_available,
@@ -248,7 +248,7 @@ function showUpdatePrompts(info) {
     const desktopLatest = normalizeVersionText(info.desktop_latest);
     if (info.desktop_update_available && localStorage.getItem(HIDDEN_DESKTOP_UPDATE_KEY) !== desktopLatest) {
         queueUpdatePrompt({
-            title: "客户端可更新",
+            title: "Desktop 可更新",
             message: `SolonCode Desktop Community ${desktopLatest} 已发布，请从 GitHub 下载最新安装包。`,
             actions: [
                 { label: "稍后", primary: false, handler: closeUpdateDialog },
