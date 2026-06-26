@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Mutex};
@@ -20,6 +22,7 @@ struct SolonState {
 
 struct SolonProcess {
     child: Child,
+    process_group_id: u32,
     port: u16,
     url: String,
     workspace: Option<String>,
@@ -95,7 +98,7 @@ fn find_soloncode_path() -> Option<String> {
 fn cleanup_soloncode_process(state: &SolonState) {
     if let Ok(mut guard) = state.processes.lock() {
         for (_, process) in guard.drain() {
-            kill_child_tree(process.child);
+            kill_child_tree(process.child, process.process_group_id);
         }
     }
 }
@@ -181,8 +184,17 @@ fn signal_pid_tree(pid: u32, signal: &str) {
         .output();
 }
 
-fn kill_child_tree(mut child: Child) {
+#[cfg(unix)]
+fn signal_process_group(process_group_id: u32, signal: &str) {
+    let _ = Command::new("kill")
+        .args([format!("-{}", signal), format!("-{}", process_group_id)])
+        .output();
+}
+
+fn kill_child_tree(mut child: Child, process_group_id: u32) {
     let pid = child.id();
+    #[cfg(unix)]
+    signal_process_group(process_group_id, "TERM");
     signal_pid_tree(pid, "TERM");
 
     for _ in 0..20 {
@@ -193,6 +205,8 @@ fn kill_child_tree(mut child: Child) {
         }
     }
 
+    #[cfg(unix)]
+    signal_process_group(process_group_id, "KILL");
     signal_pid_tree(pid, "KILL");
     let _ = child.kill();
     let _ = child.wait();
@@ -232,12 +246,25 @@ fn is_version_different(current: &str, latest: &str) -> bool {
 }
 
 fn current_cli_version(soloncode_path: &str) -> Result<String, String> {
-    let mut child = Command::new(soloncode_path)
+    let mut command = Command::new(soloncode_path);
+    command
         .arg("version")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setpgid(0, 0) == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        });
+    }
+    let mut child = command
         .spawn()
         .map_err(|e| format!("获取 SolonCode CLI 版本失败: {}", e))?;
+    let process_group_id = child.id();
 
     let stdout = child
         .stdout
@@ -252,13 +279,11 @@ fn current_cli_version(soloncode_path: &str) -> Result<String, String> {
 
     match receiver.recv_timeout(Duration::from_secs(12)) {
         Ok(line) => {
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_child_tree(child, process_group_id);
             parse_soloncode_version(&line).ok_or_else(|| "无法解析 SolonCode CLI 版本".to_string())
         }
         Err(_) => {
-            let _ = child.kill();
-            let _ = child.wait();
+            kill_child_tree(child, process_group_id);
             Err("获取 SolonCode CLI 版本超时".to_string())
         }
     }
@@ -605,7 +630,8 @@ fn start_soloncode(
 
     let start_script = "cd \"$SOLONCODE_WORKSPACE\" && echo \"Shell working directory: $(pwd)\" && echo \"open command: $(command -v open || true)\" && exec \"$SOLONCODE_BIN\" web \"$SOLONCODE_PORT\"";
 
-    let mut child = Command::new("bash")
+    let mut command = Command::new("bash");
+    command
         .args(["-c", start_script])
         .current_dir(&workspace_path)
         .env("PWD", &workspace_path)
@@ -617,9 +643,21 @@ fn start_soloncode(
         .env("OPEN_BROWSER", "false")
         .env("PATH", &shadow_path)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setpgid(0, 0) == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        });
+    }
+    let mut child = command
         .spawn()
         .map_err(|e| format!("启动失败: {} (路径: {})", e, soloncode_path))?;
+    let process_group_id = child.id();
 
     emit_workspace_log(&app, &workspace_key, &name, Some(port), "✅ 进程已启动，等待服务就绪...");
 
@@ -652,6 +690,7 @@ fn start_soloncode(
             workspace_key.clone(),
             SolonProcess {
                 child,
+                process_group_id,
                 port,
                 url: url.clone(),
                 workspace: workspace_value.clone(),
@@ -721,7 +760,7 @@ fn start_soloncode(
             let state = app_nav.state::<SolonState>();
             if let Ok(mut guard) = state.processes.lock() {
                 if let Some(process) = guard.remove(&failed_workspace_key) {
-                    kill_child_tree(process.child);
+                    kill_child_tree(process.child, process.process_group_id);
                 }
             }
             let _ = app_nav.emit("soloncode-failed", failed_workspace_key);
@@ -748,7 +787,7 @@ fn stop_soloncode(
     let (workspace_key, _, _, name) = normalize_workspace(workspace)?;
     let mut guard = state.processes.lock().unwrap();
     if let Some(process) = guard.remove(&workspace_key) {
-        kill_child_tree(process.child);
+        kill_child_tree(process.child, process.process_group_id);
         let message = "🛑 停止 SolonCode Web".to_string();
         emit_workspace_log(&app, &workspace_key, &name, Some(process.port), message.clone());
         Ok(message)

@@ -186,11 +186,13 @@ button {
 .tab-close {
     display: grid;
     place-items: center;
-    width: 18px;
-    height: 18px;
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+    margin-right: -4px;
     border-radius: 6px;
     color: var(--text-muted);
-    font-size: 0.8rem;
+    font-size: 0.9rem;
 }
 
 .tab-close:hover {
