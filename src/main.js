@@ -165,6 +165,11 @@ function formatVersion(current, latest, needsUpdate, installed = true) {
     return `本机 ${currentText} / 最新 ${latestText}${suffix}`;
 }
 
+function normalizeVersionText(version) {
+    if (!version) return "未知版本";
+    return version.startsWith("v") ? version : `v${version}`;
+}
+
 function updateVersionFooter(info) {
     const cliVersion = document.getElementById("cli-version");
     const desktopVersion = document.getElementById("desktop-version");
@@ -192,7 +197,7 @@ function updateDesktopVersionFooter(update) {
     if (!desktopVersion || !update) return;
     desktopUpdateInfo = update.available ? update : null;
     desktopVersion.textContent = update.available
-        ? `客户端：本机 ${update.current_version} / 最新 v${update.version}，可更新`
+        ? `客户端：本机 ${normalizeVersionText(update.current_version)} / 最新 ${normalizeVersionText(update.version)}，可更新`
         : `客户端：本机 ${update.current_version} / 最新 ${update.current_version}`;
     desktopVersion.classList.toggle("version-update", Boolean(update.available));
 }
@@ -257,7 +262,7 @@ function showDesktopUpdatePrompt(update) {
         desktopUpdatePromptShown = true;
         queueUpdatePrompt({
             title: "客户端可更新",
-            message: `SolonCode Desktop Community ${update.version} 已发布，可以自动下载并安装。`,
+            message: `SolonCode Desktop Community ${normalizeVersionText(update.version)} 已发布，点击立即更新即可自动下载并安装。`,
             actions: [
                 { label: "稍后", primary: false, handler: closeUpdateDialog },
                 {
@@ -276,7 +281,7 @@ async function refreshDesktopUpdateStatus() {
         updateDesktopVersionFooter(update);
         showDesktopUpdatePrompt(update);
     } catch (e) {
-        appendLog("客户端自动更新暂不可用: " + e);
+        appendLog("客户端更新检查未完成: " + e + "。你可以稍后重试，或通过右上角 GitHub 入口获取安装包。");
     }
 }
 

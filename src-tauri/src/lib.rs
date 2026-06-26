@@ -411,9 +411,7 @@ fn check_versions_blocking() -> VersionStatus {
 #[tauri::command]
 async fn check_desktop_update(app: tauri::AppHandle) -> Result<DesktopUpdateInfo, String> {
     let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    let update = app
-        .updater()
-        .map_err(|e| format!("初始化自动更新失败: {}", e))?
+    let update = desktop_updater(&app)?
         .check()
         .await
         .map_err(|e| format!("检查客户端更新失败: {}", e))?;
@@ -439,9 +437,7 @@ async fn check_desktop_update(app: tauri::AppHandle) -> Result<DesktopUpdateInfo
 /// 下载并安装桌面客户端更新。安装完成后，用户重启应用即可进入新版本。
 #[tauri::command]
 async fn install_desktop_update(app: tauri::AppHandle) -> Result<String, String> {
-    let update = app
-        .updater()
-        .map_err(|e| format!("初始化自动更新失败: {}", e))?
+    let update = desktop_updater(&app)?
         .check()
         .await
         .map_err(|e| format!("检查客户端更新失败: {}", e))?
@@ -468,6 +464,22 @@ async fn install_desktop_update(app: tauri::AppHandle) -> Result<String, String>
         .map_err(|e| format!("安装客户端更新失败: {}", e))?;
 
     Ok(format!("客户端更新 {} 已安装，重启应用后生效", version))
+}
+
+fn desktop_updater(app: &tauri::AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+    #[cfg(target_os = "macos")]
+    {
+        app.updater_builder()
+            .target("darwin-universal")
+            .build()
+            .map_err(|e| format!("初始化自动更新失败: {}", e))
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        app.updater()
+            .map_err(|e| format!("初始化自动更新失败: {}", e))
+    }
 }
 
 /// 退出应用，用于客户端更新安装完成后让用户手动重启。
