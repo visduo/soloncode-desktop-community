@@ -11,7 +11,6 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, RunEvent};
-use tauri_plugin_updater::UpdaterExt;
 
 const PORT_START: u16 = 49152;
 const PORT_END: u16 = 60999;
@@ -67,15 +66,6 @@ struct VersionStatus {
     desktop_latest: Option<String>,
     desktop_update_available: bool,
     error: Option<String>,
-}
-
-#[derive(Serialize)]
-struct DesktopUpdateInfo {
-    available: bool,
-    current_version: String,
-    version: Option<String>,
-    date: Option<String>,
-    body: Option<String>,
 }
 
 impl Drop for SolonState {
@@ -405,87 +395,6 @@ fn check_versions_blocking() -> VersionStatus {
             error: Some(error),
         },
     }
-}
-
-/// 检查桌面客户端是否有 Tauri 自动更新。
-#[tauri::command]
-async fn check_desktop_update(app: tauri::AppHandle) -> Result<DesktopUpdateInfo, String> {
-    let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    let update = desktop_updater(&app)?
-        .check()
-        .await
-        .map_err(|e| format!("检查客户端更新失败: {}", e))?;
-
-    Ok(match update {
-        Some(update) => DesktopUpdateInfo {
-            available: true,
-            current_version: update.current_version,
-            version: Some(update.version),
-            date: update.date.map(|date| date.to_string()),
-            body: update.body,
-        },
-        None => DesktopUpdateInfo {
-            available: false,
-            current_version,
-            version: None,
-            date: None,
-            body: None,
-        },
-    })
-}
-
-/// 下载并安装桌面客户端更新。安装完成后，用户重启应用即可进入新版本。
-#[tauri::command]
-async fn install_desktop_update(app: tauri::AppHandle) -> Result<String, String> {
-    let update = desktop_updater(&app)?
-        .check()
-        .await
-        .map_err(|e| format!("检查客户端更新失败: {}", e))?
-        .ok_or_else(|| "当前已是最新版本".to_string())?;
-
-    let version = update.version.clone();
-    let app_for_progress = app.clone();
-    update
-        .download_and_install(
-            move |chunk_length, content_length| {
-                let message = match content_length {
-                    Some(total) => {
-                        format!("⬇️ 正在下载客户端更新: {} / {} bytes", chunk_length, total)
-                    }
-                    None => format!("⬇️ 正在下载客户端更新: {} bytes", chunk_length),
-                };
-                let _ = app_for_progress.emit("soloncode-output", message);
-            },
-            || {
-                let _ = app.emit("soloncode-output", "✅ 客户端更新下载完成，正在安装...");
-            },
-        )
-        .await
-        .map_err(|e| format!("安装客户端更新失败: {}", e))?;
-
-    Ok(format!("客户端更新 {} 已安装，重启应用后生效", version))
-}
-
-fn desktop_updater(app: &tauri::AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
-    #[cfg(target_os = "macos")]
-    {
-        app.updater_builder()
-            .target("darwin-universal")
-            .build()
-            .map_err(|e| format!("初始化自动更新失败: {}", e))
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        app.updater()
-            .map_err(|e| format!("初始化自动更新失败: {}", e))
-    }
-}
-
-/// 退出应用，用于客户端更新安装完成后让用户手动重启。
-#[tauri::command]
-fn quit_app(app: tauri::AppHandle) {
-    app.exit(0);
 }
 
 /// 选择一个工作区目录
@@ -977,15 +886,12 @@ fn go_home(app: tauri::AppHandle) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(SolonState {
             processes: Mutex::new(HashMap::new()),
         })
         .invoke_handler(tauri::generate_handler![
             check_soloncode,
             check_versions,
-            check_desktop_update,
-            install_desktop_update,
             pick_workspace,
             home_workspace_path,
             reveal_workspace,
@@ -995,7 +901,6 @@ pub fn run() {
             start_soloncode,
             stop_soloncode,
             go_home,
-            quit_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

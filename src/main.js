@@ -9,8 +9,6 @@ let homeWorkspacePath = "";
 let activeTabKey = "home";
 let cliUpdateAvailable = false;
 let cliUpdatePromptShown = false;
-let desktopUpdatePromptShown = false;
-let desktopUpdateInfo = null;
 let installCliPromptShown = false;
 const pendingUpdatePrompts = [];
 const runningProjects = new Map();
@@ -20,6 +18,7 @@ const workspaceLogs = new Map();
 const WORKSPACES_KEY = "soloncode.workspaces";
 const HOME_TAB_KEY = "home";
 const HOME_WORKSPACE_KEY = "__home__";
+const HIDDEN_DESKTOP_UPDATE_KEY = "soloncode.hiddenDesktopUpdate";
 
 // ─── 工具函数 ────────────────────────────────────────────
 
@@ -192,16 +191,6 @@ function updateVersionFooter(info) {
     desktopVersion.classList.toggle("version-update", Boolean(info.desktop_update_available));
 }
 
-function updateDesktopVersionFooter(update) {
-    const desktopVersion = document.getElementById("desktop-version");
-    if (!desktopVersion || !update) return;
-    desktopUpdateInfo = update.available ? update : null;
-    desktopVersion.textContent = update.available
-        ? `客户端：本机 ${normalizeVersionText(update.current_version)} / 最新 ${normalizeVersionText(update.version)}，可更新`
-        : `客户端：本机 ${update.current_version} / 最新 ${update.current_version}`;
-    desktopVersion.classList.toggle("version-update", Boolean(update.available));
-}
-
 function closeUpdateDialog() {
     const dialog = document.getElementById("update-dialog");
     if (dialog) dialog.hidden = true;
@@ -255,33 +244,32 @@ function showUpdatePrompts(info) {
             actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
         });
     }
-}
 
-function showDesktopUpdatePrompt(update) {
-    if (update?.available && !desktopUpdatePromptShown) {
-        desktopUpdatePromptShown = true;
+    const desktopLatest = normalizeVersionText(info.desktop_latest);
+    if (info.desktop_update_available && localStorage.getItem(HIDDEN_DESKTOP_UPDATE_KEY) !== desktopLatest) {
         queueUpdatePrompt({
             title: "客户端可更新",
-            message: `SolonCode Desktop Community ${normalizeVersionText(update.version)} 已发布，点击立即更新即可自动下载并安装。`,
+            message: `SolonCode Desktop Community ${desktopLatest} 已发布，请从 GitHub 下载最新安装包。`,
             actions: [
                 { label: "稍后", primary: false, handler: closeUpdateDialog },
                 {
-                    label: "立即更新",
+                    label: "不再提醒",
+                    primary: false,
+                    handler: () => {
+                        localStorage.setItem(HIDDEN_DESKTOP_UPDATE_KEY, desktopLatest);
+                        closeUpdateDialog();
+                    }
+                },
+                {
+                    label: "下载最新版",
                     primary: true,
-                    handler: handleDesktopUpdate
+                    handler: () => {
+                        closeUpdateDialog();
+                        openGitHubPage();
+                    }
                 }
             ]
         });
-    }
-}
-
-async function refreshDesktopUpdateStatus() {
-    try {
-        const update = await invoke("check_desktop_update");
-        updateDesktopVersionFooter(update);
-        showDesktopUpdatePrompt(update);
-    } catch (e) {
-        appendLog("客户端更新检查未完成: " + e + "。你可以稍后重试，或通过右上角 GitHub 入口获取安装包。");
     }
 }
 
@@ -322,7 +310,6 @@ async function refreshVersionStatus() {
         isInstalled = installed;
         updateVersionFooter(info);
         showUpdatePrompts(info);
-        await refreshDesktopUpdateStatus();
         if (changed) renderWorkspaces();
         if (isInstalled) {
             setStatus(
@@ -647,41 +634,6 @@ async function handleUpdate() {
     } catch (e) {
         appendLog("CLI 更新失败: " + e);
         setStatus("CLI 更新失败", "installed");
-    } finally {
-        setBusy(false);
-    }
-}
-
-async function handleDesktopUpdate() {
-    if (isBusy) return;
-    closeUpdateDialog();
-    setBusy(true);
-    setStatus("正在更新客户端...", "detecting");
-    appendLog("正在下载并安装 SolonCode Desktop Community 更新...");
-    try {
-        const message = await invoke("install_desktop_update");
-        appendLog("✅ " + message);
-        queueUpdatePrompt({
-            title: "客户端更新已安装",
-            message: "更新已安装完成。请退出并重新打开应用以使用新版本。",
-            actions: [
-                { label: "稍后", primary: false, handler: closeUpdateDialog },
-                {
-                    label: "退出应用",
-                    primary: true,
-                    handler: async () => {
-                        await invoke("quit_app");
-                    }
-                }
-            ]
-        });
-    } catch (e) {
-        appendLog("❌ 客户端更新失败: " + e);
-        queueUpdatePrompt({
-            title: "客户端更新失败",
-            message: String(e),
-            actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
-        });
     } finally {
         setBusy(false);
     }
