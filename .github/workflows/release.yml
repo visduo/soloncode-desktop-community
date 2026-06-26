@@ -31,6 +31,9 @@ jobs:
               with:
                   targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+            - name: Install Tauri CLI
+              run: cargo install tauri-cli --version 2.11.3 --locked
+
             - name: Install Linux dependencies
               if: matrix.platform == 'ubuntu-22.04'
               run: |
