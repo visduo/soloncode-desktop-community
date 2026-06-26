@@ -1,6 +1,6 @@
 [package]
 name = "soloncode-desktop-community"
-version = "0.12.5"
+version = "0.12.6"
 description = "SolonCode Desktop Community"
 authors = ["visduo"]
 edition = "2021"
