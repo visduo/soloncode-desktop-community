@@ -14,6 +14,7 @@ let installCliPromptShown = false;
 let javaPromptShown = false;
 const pendingUpdatePrompts = [];
 const runningProjects = new Map();
+const projectFrames = new Map();
 const startingWorkspaceKeys = new Set();
 const workspaceLogs = new Map();
 const queuedPromptKeys = new Set();
@@ -479,7 +480,20 @@ function activateHomeTab() {
     document.querySelector(".app-header").style.display = "flex";
     document.getElementById("home-view").style.display = "grid";
     document.getElementById("project-view").style.display = "none";
+    hideProjectFrames();
     renderTabs();
+}
+
+function hideProjectFrames() {
+    for (const frame of projectFrames.values()) {
+        frame.style.display = "none";
+    }
+}
+
+function removeProjectFrame(key) {
+    const frame = projectFrames.get(key);
+    if (frame) frame.remove();
+    projectFrames.delete(key);
 }
 
 function activateProjectTab(key) {
@@ -494,12 +508,19 @@ function activateProjectTab(key) {
     document.getElementById("home-view").style.display = "none";
     const projectView = document.getElementById("project-view");
     projectView.style.display = "block";
-    projectView.innerHTML = "";
-    const frame = document.createElement("iframe");
-    frame.className = "project-frame";
-    frame.title = project.name;
-    frame.src = project.url;
-    projectView.appendChild(frame);
+    hideProjectFrames();
+    let frame = projectFrames.get(key);
+    if (!frame) {
+        frame = document.createElement("iframe");
+        frame.className = "project-frame";
+        frame.title = project.name;
+        frame.src = project.url;
+        projectView.appendChild(frame);
+        projectFrames.set(key, frame);
+    } else {
+        frame.title = project.name;
+    }
+    frame.style.display = "block";
     renderTabs();
 }
 
@@ -510,6 +531,7 @@ async function closeProjectTab(key) {
     try {
         await invoke("stop_soloncode", { workspace: project.workspace });
         runningProjects.delete(key);
+        removeProjectFrame(key);
         if (activeTabKey === key) activateHomeTab();
         else renderTabs();
         renderWorkspaces();
@@ -825,6 +847,7 @@ async function handleStop() {
         await invoke("stop_soloncode", { workspace: selectedWorkspace });
         runningProjects.delete(workspaceKey);
         startingWorkspaceKeys.delete(workspaceKey);
+        removeProjectFrame(workspaceKey);
         if (activeTabKey === workspaceKey) {
             activateHomeTab();
         } else {
@@ -857,6 +880,7 @@ async function handleUninstall() {
         isInstalled = false;
         cliUpdateAvailable = false;
         runningProjects.clear();
+        for (const key of projectFrames.keys()) removeProjectFrame(key);
         startingWorkspaceKeys.clear();
         activateHomeTab();
         await refreshVersionStatus();
