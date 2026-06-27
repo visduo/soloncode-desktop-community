@@ -11,6 +11,7 @@ let cliUpdateAvailable = false;
 let isJavaAvailable = false;
 let cliUpdatePromptShown = false;
 let installCliPromptShown = false;
+let javaPromptShown = false;
 const pendingUpdatePrompts = [];
 const runningProjects = new Map();
 const startingWorkspaceKeys = new Set();
@@ -144,7 +145,7 @@ function refreshButtons() {
 
     btnInstall.disabled = isBusy || isInstalled;
     btnUpdate.disabled = isBusy || !isInstalled || !cliUpdateAvailable || hasRunningProjects;
-    btnRun.disabled = isBusy || !isInstalled || !isJavaAvailable || Boolean(activeProject) || activeStarting;
+    btnRun.disabled = isBusy || !isInstalled || Boolean(activeProject) || activeStarting;
     btnStop.disabled = isBusy || (!activeProject && !activeStarting);
     btnUninstall.disabled = isBusy || !isInstalled || hasRunningProjects;
 
@@ -156,10 +157,6 @@ function refreshButtons() {
         btnRun.querySelector(".btn-text").textContent = "启动中...";
         btnRun.querySelector(".btn-icon").textContent = "…";
         btnRun.querySelector(".btn-desc").textContent = "等待 Web 服务就绪";
-    } else if (!isJavaAvailable) {
-        btnRun.querySelector(".btn-text").textContent = "缺少 Java";
-        btnRun.querySelector(".btn-icon").textContent = "!";
-        btnRun.querySelector(".btn-desc").textContent = "请先安装 Java 运行环境";
     } else {
         btnRun.querySelector(".btn-text").textContent = "运行 SolonCode";
         btnRun.querySelector(".btn-icon").textContent = "▶";
@@ -245,6 +242,14 @@ function showInstallCliPrompt() {
     });
 }
 
+function showJavaPrompt() {
+    queueUpdatePrompt({
+        title: "缺少 Java 环境",
+        message: "未检测到 Java 运行环境，请先安装 Java 后再启动 SolonCode Web。",
+        actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
+    });
+}
+
 function showUpdatePrompts(info) {
     if (info.cli_update_available && !cliUpdatePromptShown) {
         cliUpdatePromptShown = true;
@@ -315,12 +320,20 @@ async function refreshHomeWorkspacePath() {
 async function refreshJavaStatus() {
     try {
         isJavaAvailable = Boolean(await invoke("check_java"));
-        if (!isJavaAvailable) {
-            setStatus("缺少 Java 运行环境", "not-installed");
+        if (!isJavaAvailable && !javaPromptShown) {
+            javaPromptShown = true;
+            showJavaPrompt();
         }
     } catch (e) {
         isJavaAvailable = false;
-        setStatus("Java 检测失败: " + e, "not-installed");
+        if (!javaPromptShown) {
+            javaPromptShown = true;
+            queueUpdatePrompt({
+                title: "Java 检测失败",
+                message: "Java 运行环境检测失败: " + e,
+                actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
+            });
+        }
     }
     refreshButtons();
 }
@@ -335,14 +348,10 @@ async function refreshVersionStatus() {
         showUpdatePrompts(info);
         if (changed) renderWorkspaces();
         if (isInstalled) {
-            if (!isJavaAvailable) {
-                setStatus("缺少 Java 运行环境", "not-installed");
-            } else {
-                setStatus(
-                    info.cli_update_available ? "CLI 可更新" : "已安装",
-                    info.cli_update_available ? "update-available" : "installed"
-                );
-            }
+            setStatus(
+                info.cli_update_available ? "CLI 可更新" : "已安装",
+                info.cli_update_available ? "update-available" : "installed"
+            );
         } else {
             setStatus("CLI 未安装，请先安装", "not-installed");
         }
@@ -676,12 +685,12 @@ async function handleRun() {
         return;
     }
     if (!isJavaAvailable) {
+        showJavaPrompt();
         appendLog(
             formatError("未检测到 Java 运行环境，请先安装 Java 后再启动 SolonCode Web"),
             workspaceKey,
             getWorkspaceName(selectedWorkspace)
         );
-        setStatus("缺少 Java 运行环境", "not-installed");
         refreshButtons();
         return;
     }

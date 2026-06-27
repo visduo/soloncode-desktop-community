@@ -6,6 +6,8 @@ use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{mpsc, Mutex};
@@ -15,6 +17,8 @@ use tauri::{Emitter, Manager, RunEvent};
 const PORT_START: u16 = 49152;
 const PORT_END: u16 = 60999;
 const VERSION_URL: &str = "https://static-lab.6os.net/soloncode/version.php";
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 // ─── 状态管理 ───────────────────────────────────────────────
 
@@ -116,6 +120,7 @@ fn soloncode_command(soloncode_path: &str) -> Command {
             "-File",
             soloncode_path,
         ]);
+        command.creation_flags(CREATE_NO_WINDOW);
         command
     }
 
@@ -540,6 +545,7 @@ fn run_shell_with_live_output(
     let mut command = {
         let mut command = Command::new("powershell");
         command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]);
+        command.creation_flags(CREATE_NO_WINDOW);
         command
     };
     #[cfg(not(target_os = "windows"))]
@@ -764,6 +770,10 @@ fn start_soloncode(
         command
             .args(["web", &port.to_string()])
             .current_dir(&workspace_path)
+            .env("BROWSER", "cmd /C exit 0")
+            .env("browser", "cmd /C exit 0")
+            .env("SOLONCODE_NO_BROWSER", "1")
+            .env("SOLONCODE_OPEN_BROWSER", "false")
             .env("NO_BROWSER", "1")
             .env("OPEN_BROWSER", "false")
             .env("PATH", &path_env)
