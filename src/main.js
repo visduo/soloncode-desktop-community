@@ -390,7 +390,7 @@ async function refreshVersionStatus(options = {}) {
             isInstalled = false;
         }
         renderWorkspaces();
-        setStatus("检测失败: " + e, "not-installed");
+        setStatus("检测失败: " + e, isInstalled ? "installed" : "not-installed");
         refreshButtons();
         return { installed: isInstalled, error: String(e) };
     }
