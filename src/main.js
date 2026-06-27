@@ -83,8 +83,8 @@ function renderLogs() {
 
 function getLogLineType(message) {
     if (message.startsWith("❌") || message.includes("[stderr]")) return "log-error";
-    if (message.startsWith("🚀") || message.includes("启动 SolonCode Web")) return "log-start";
-    if (message.startsWith("🛑") || message.includes("停止 SolonCode Web")) return "log-stop";
+    if (message.startsWith("🚀") || message.includes("启动 SolonCode")) return "log-start";
+    if (message.startsWith("🛑") || message.includes("停止 SolonCode")) return "log-stop";
     if (message.startsWith("✅")) return "log-success";
     if (message.startsWith("⏳")) return "log-wait";
     if (message.startsWith("📁")) return "log-path";
@@ -259,7 +259,7 @@ function showJavaPrompt() {
     queueUpdatePrompt({
         key: "missing-java",
         title: "缺少 Java 环境",
-        message: "未检测到 Java 运行环境，请先安装 Java 后再启动 SolonCode Web。",
+        message: "未检测到 Java 运行环境，请先安装 Java 后再安装/启动 SolonCode CLI。",
         actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
     });
 }
@@ -732,7 +732,7 @@ async function handleRun(workspace = selectedWorkspace) {
     if (!isJavaAvailable) {
         showJavaPrompt();
         appendLog(
-            formatError("未检测到 Java 运行环境，请先安装 Java 后再启动 SolonCode Web"),
+            formatError("未检测到 Java 运行环境，请先安装 Java 后再启动 SolonCode"),
             workspaceKey,
             getWorkspaceName(targetWorkspace)
         );
@@ -756,7 +756,7 @@ async function handleRun(workspace = selectedWorkspace) {
         appendLog(
             project.already_running
                 ? `已在运行: ${project.name} (${project.url})`
-                : `SolonCode Web 启动中: ${project.name} (${project.url})`,
+                : `SolonCode 启动中: ${project.name} (${project.url})`,
             project.workspace_key,
             project.name,
             project.port

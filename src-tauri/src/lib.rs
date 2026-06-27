@@ -712,7 +712,7 @@ fn uninstall_soloncode_script() -> &'static str {
     "printf 'y\ny\n' | sh ~/.soloncode/bin/uninstall.sh"
 }
 
-/// 启动 soloncode web 服务
+/// 启动 soloncode 服务
 #[tauri::command]
 fn start_soloncode(
     app: tauri::AppHandle,
@@ -753,7 +753,7 @@ fn start_soloncode(
     let soloncode_path =
         find_soloncode_path().ok_or("SolonCode CLI 未安装，请先点击「安装 CLI」")?;
     if !is_java_available() {
-        return Err("未检测到 Java 运行环境，请先安装 Java 后再启动 SolonCode Web".to_string());
+        return Err("未检测到 Java 运行环境，请先安装 Java 后再安装/启动 SolonCode".to_string());
     }
 
     let used_ports: HashSet<u16> = state
@@ -771,7 +771,7 @@ fn start_soloncode(
         &workspace_key,
         &name,
         Some(port),
-        format!("🚀 启动 SolonCode Web (端口: {})", port),
+        format!("🚀 启动 SolonCode (端口: {})", port),
     );
     emit_workspace_log(
         &app,
@@ -799,7 +799,7 @@ fn start_soloncode(
 
     #[cfg(not(target_os = "windows"))]
     // 创建浏览器打开命令的阴影脚本，放在临时目录并注入 PATH 最前面
-    // soloncode web 内部调用 open / xdg-open / browser 时，会命中这些空脚本
+    // soloncode 内部调用 open / xdg-open / browser 时，会命中这些空脚本
     let shadow_dir = std::env::temp_dir().join("soloncode-shadow");
     #[cfg(not(target_os = "windows"))]
     let _ = std::fs::create_dir_all(&shadow_dir);
@@ -879,7 +879,7 @@ fn start_soloncode(
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "无法读取 SolonCode Web 标准输出".to_string())?;
+        .ok_or_else(|| "无法读取 SolonCode 标准输出".to_string())?;
     let app_out = app.clone();
     let stdout_workspace_key = workspace_key.clone();
     let stdout_name = name.clone();
@@ -899,7 +899,7 @@ fn start_soloncode(
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| "无法读取 SolonCode Web 错误输出".to_string())?;
+        .ok_or_else(|| "无法读取 SolonCode 错误输出".to_string())?;
     let app_err = app.clone();
     let stderr_workspace_key = workspace_key.clone();
     let stderr_name = name.clone();
@@ -974,7 +974,7 @@ fn start_soloncode(
                 return;
             };
             if let Some(status) = exited {
-                failed_message = Some(format!("❌ SolonCode Web 已退出: {}", status));
+                failed_message = Some(format!("❌ SolonCode 已退出: {}", status));
                 break;
             }
             if i % 4 == 0 {
@@ -1035,7 +1035,7 @@ fn start_soloncode(
     })
 }
 
-/// 停止 soloncode web 服务
+/// 停止 soloncode 服务
 #[tauri::command]
 fn stop_soloncode(
     app: tauri::AppHandle,
@@ -1049,7 +1049,7 @@ fn stop_soloncode(
         .map_err(|_| "进程状态不可用，请重启 Desktop 后重试".to_string())?;
     if let Some(process) = guard.remove(&workspace_key) {
         kill_child_tree(process.child, process.process_group_id);
-        let message = "🛑 停止 SolonCode Web".to_string();
+        let message = "🛑 停止 SolonCode".to_string();
         emit_workspace_log(
             &app,
             &workspace_key,
