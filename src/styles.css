@@ -196,6 +196,8 @@ button {
     border-radius: 6px;
     color: var(--text-muted);
     font-size: 0.9rem;
+    line-height: 1;
+    text-align: center;
 }
 
 .tab-close:hover {
