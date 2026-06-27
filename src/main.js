@@ -21,6 +21,7 @@ const WORKSPACES_KEY = "soloncode.workspaces";
 const HOME_TAB_KEY = "home";
 const HOME_WORKSPACE_KEY = "__home__";
 const HIDDEN_DESKTOP_UPDATE_KEY = "soloncode.hiddenDesktopUpdate";
+const MAX_LOG_LINES = 500;
 
 // ─── 工具函数 ────────────────────────────────────────────
 
@@ -38,6 +39,9 @@ function appendWorkspaceLog(payload) {
     entry.name = payload.name || entry.name;
     entry.port = payload.port || entry.port;
     entry.lines.push(payload.message || "");
+    if (entry.lines.length > MAX_LOG_LINES) {
+        entry.lines.splice(0, entry.lines.length - MAX_LOG_LINES);
+    }
     workspaceLogs.set(workspaceKey, entry);
     renderLogs();
 }
@@ -145,7 +149,7 @@ function refreshButtons() {
 
     btnInstall.disabled = isBusy || isInstalled;
     btnUpdate.disabled = isBusy || !isInstalled || !cliUpdateAvailable || hasRunningProjects;
-    btnRun.disabled = isBusy || !isInstalled || Boolean(activeProject) || activeStarting;
+    btnRun.disabled = isBusy || !isInstalled || !isJavaAvailable || Boolean(activeProject) || activeStarting;
     btnStop.disabled = isBusy || (!activeProject && !activeStarting);
     btnUninstall.disabled = isBusy || !isInstalled || hasRunningProjects;
 
@@ -162,6 +166,10 @@ function refreshButtons() {
         btnRun.querySelector(".btn-icon").textContent = "▶";
         btnRun.querySelector(".btn-desc").textContent = "在当前工作区启动 Web 界面";
     }
+}
+
+function canStartWorkspace(path) {
+    return isInstalled && isJavaAvailable && !isBusy && !isWorkspaceStarting(path);
 }
 
 function formatVersion(current, latest, needsUpdate, installed = true) {
@@ -338,6 +346,11 @@ async function refreshJavaStatus() {
     refreshButtons();
 }
 
+async function refreshEnvironmentStatus() {
+    await refreshJavaStatus();
+    await refreshVersionStatus();
+}
+
 async function refreshVersionStatus() {
     try {
         const info = await invoke("check_versions");
@@ -430,7 +443,12 @@ function activateProjectTab(key) {
     document.getElementById("home-view").style.display = "none";
     const projectView = document.getElementById("project-view");
     projectView.style.display = "block";
-    projectView.innerHTML = `<iframe class="project-frame" title="${project.name}" src="${project.url}"></iframe>`;
+    projectView.innerHTML = "";
+    const frame = document.createElement("iframe");
+    frame.className = "project-frame";
+    frame.title = project.name;
+    frame.src = project.url;
+    projectView.appendChild(frame);
     renderTabs();
 }
 
@@ -569,7 +587,7 @@ function createWorkspaceItem({ path, name, detail, active, running, removable })
     const actions = document.createElement("div");
     actions.className = "workspace-actions";
     const workspaceStarting = isWorkspaceStarting(path);
-    const runDisabled = !running && (!isInstalled || isBusy || workspaceStarting);
+    const runDisabled = !running && !canStartWorkspace(path);
     actions.appendChild(
         createWorkspaceButton(
             running ? "open" : "play",
@@ -646,8 +664,7 @@ async function handleInstall() {
     try {
         await invoke("install_soloncode");
         isInstalled = true;
-        await refreshJavaStatus();
-        await refreshVersionStatus();
+        await refreshEnvironmentStatus();
         setStatus("CLI 安装完成", "installed");
     } catch (e) {
         appendLog(formatError(e));
@@ -666,11 +683,10 @@ async function handleUpdate() {
     try {
         await invoke("install_soloncode");
         isInstalled = true;
-        await refreshJavaStatus();
-        await refreshVersionStatus();
+        await refreshEnvironmentStatus();
         setStatus("CLI 更新完成", "installed");
     } catch (e) {
-        appendLog("CLI 更新失败: " + e);
+        appendLog(formatError("CLI 更新失败: " + e));
         setStatus("CLI 更新失败", "installed");
     } finally {
         setBusy(false);
@@ -829,10 +845,16 @@ listen("soloncode-ready", (e) => {
 });
 
 listen("soloncode-failed", (e) => {
-    const workspaceKey = String(e.payload || HOME_WORKSPACE_KEY);
+    const payload = typeof e.payload === "object" && e.payload ? e.payload : { workspace_key: e.payload };
+    const workspaceKey = String(payload.workspace_key || HOME_WORKSPACE_KEY);
     startingWorkspaceKeys.delete(workspaceKey);
     runningProjects.delete(workspaceKey);
-    appendLog(formatError("启动失败: " + e.payload), workspaceKey, getWorkspaceName(null));
+    appendLog(
+        formatError(payload.message || "启动失败"),
+        workspaceKey,
+        payload.name || getWorkspaceName(null),
+        payload.port || null
+    );
     setStatus("启动失败", "installed");
     setBusy(false);
 });
@@ -849,9 +871,8 @@ async function init() {
     document.getElementById("button-group").style.display = "grid";
     refreshButtons();
     refreshHomeWorkspacePath();
-    refreshJavaStatus();
-    refreshInstallStatus();
-    refreshVersionStatus();
+    await refreshInstallStatus();
+    await refreshEnvironmentStatus();
 }
 
 window.addEventListener("DOMContentLoaded", init);

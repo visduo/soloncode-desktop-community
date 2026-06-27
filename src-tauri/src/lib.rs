@@ -54,6 +54,14 @@ struct WorkspaceLog {
     message: String,
 }
 
+#[derive(Serialize, Clone)]
+struct FailedResult {
+    workspace_key: String,
+    name: String,
+    port: Option<u16>,
+    message: String,
+}
+
 #[derive(Deserialize)]
 struct RemoteVersionInfo {
     cli: Option<String>,
@@ -97,6 +105,8 @@ fn find_soloncode_path() -> Option<String> {
     let mut path_command = Command::new("where");
     #[cfg(not(target_os = "windows"))]
     let mut path_command = Command::new("which");
+    #[cfg(windows)]
+    path_command.creation_flags(CREATE_NO_WINDOW);
 
     if let Ok(output) = path_command.arg("soloncode").output() {
         if output.status.success() {
@@ -131,12 +141,14 @@ fn soloncode_command(soloncode_path: &str) -> Command {
 }
 
 fn is_java_available() -> bool {
-    Command::new("java")
+    let mut command = Command::new("java");
+    command
         .arg("-version")
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command.status().is_ok_and(|status| status.success())
 }
 
 fn cleanup_soloncode_process(state: &SolonState) {
@@ -210,6 +222,8 @@ fn pick_available_port(used_ports: &HashSet<u16>) -> Result<u16, String> {
 }
 
 fn child_pids(pid: u32) -> Vec<u32> {
+    #[cfg(unix)]
+    {
     Command::new("pgrep")
         .args(["-P", &pid.to_string()])
         .output()
@@ -222,15 +236,28 @@ fn child_pids(pid: u32) -> Vec<u32> {
                 .collect()
         })
         .unwrap_or_default()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        Vec::new()
+    }
 }
 
 fn signal_pid_tree(pid: u32, signal: &str) {
+    #[cfg(unix)]
+    {
     for child_pid in child_pids(pid) {
         signal_pid_tree(child_pid, signal);
     }
     let _ = Command::new("kill")
         .args([format!("-{}", signal), pid.to_string()])
         .output();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (pid, signal);
+    }
 }
 
 #[cfg(unix)]
@@ -259,6 +286,13 @@ fn kill_child_tree(mut child: Child, process_group_id: u32) {
     #[cfg(unix)]
     signal_process_group(process_group_id, "KILL");
     signal_pid_tree(pid, "KILL");
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("taskkill");
+        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        command.creation_flags(CREATE_NO_WINDOW);
+        let _ = command.output();
+    }
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -353,19 +387,18 @@ fn current_cli_version(soloncode_path: &str) -> Result<String, String> {
 }
 
 fn latest_versions() -> Result<RemoteVersionInfo, String> {
-    let output = Command::new("curl")
-        .args(["-fsSL", "--max-time", "8", VERSION_URL])
-        .output()
+    let response = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|e| format!("创建版本检测请求失败: {}", e))?
+        .get(VERSION_URL)
+        .send()
+        .map_err(|e| format!("获取最新版本失败: {}", e))?
+        .error_for_status()
         .map_err(|e| format!("获取最新版本失败: {}", e))?;
 
-    if !output.status.success() {
-        return Err(format!(
-            "获取最新版本失败 (exit code: {:?})",
-            output.status.code()
-        ));
-    }
-
-    serde_json::from_slice::<RemoteVersionInfo>(&output.stdout)
+    response
+        .json::<RemoteVersionInfo>()
         .map_err(|e| format!("解析最新版本失败: {}", e))
 }
 
@@ -516,6 +549,7 @@ fn open_url(url: &str) -> Result<(), String> {
     let mut command = {
         let mut command = Command::new("cmd");
         command.args(["/C", "start", "", url]);
+        command.creation_flags(CREATE_NO_WINDOW);
         command
     };
 
@@ -672,7 +706,10 @@ fn start_soloncode(
 
     // 检查该工作区是否已在运行（清理已死的旧进程）
     {
-        let mut guard = state.processes.lock().unwrap();
+        let mut guard = state
+            .processes
+            .lock()
+            .map_err(|_| "进程状态不可用，请重启 Desktop 后重试".to_string())?;
         if let Some(process) = guard.get_mut(&workspace_key) {
             match process.child.try_wait() {
                 Ok(Some(_)) | Err(_) => {
@@ -705,7 +742,7 @@ fn start_soloncode(
     let used_ports: HashSet<u16> = state
         .processes
         .lock()
-        .unwrap()
+        .map_err(|_| "进程状态不可用，请重启 Desktop 后重试".to_string())?
         .values()
         .map(|process| process.port)
         .collect();
@@ -822,7 +859,10 @@ fn start_soloncode(
     );
 
     // 转发 stdout 日志
-    let stdout = child.stdout.take().unwrap();
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "无法读取 SolonCode Web 标准输出".to_string())?;
     let app_out = app.clone();
     let stdout_workspace_key = workspace_key.clone();
     let stdout_name = name.clone();
@@ -839,7 +879,10 @@ fn start_soloncode(
     });
 
     // 转发 stderr 日志
-    let stderr = child.stderr.take().unwrap();
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "无法读取 SolonCode Web 错误输出".to_string())?;
     let app_err = app.clone();
     let stderr_workspace_key = workspace_key.clone();
     let stderr_name = name.clone();
@@ -857,7 +900,10 @@ fn start_soloncode(
 
     // 存储子进程
     {
-        let mut guard = state.processes.lock().unwrap();
+        let mut guard = state
+            .processes
+            .lock()
+            .map_err(|_| "进程状态不可用，请重启 Desktop 后重试".to_string())?;
         guard.insert(
             workspace_key.clone(),
             SolonProcess {
@@ -950,7 +996,15 @@ fn start_soloncode(
                     kill_child_tree(process.child, process.process_group_id);
                 }
             }
-            let _ = app_nav.emit("soloncode-failed", failed_workspace_key);
+            let _ = app_nav.emit(
+                "soloncode-failed",
+                FailedResult {
+                    workspace_key: failed_workspace_key,
+                    name: ready_payload.name,
+                    port: Some(port),
+                    message,
+                },
+            );
         }
     });
 
@@ -972,7 +1026,10 @@ fn stop_soloncode(
     workspace: Option<String>,
 ) -> Result<String, String> {
     let (workspace_key, _, _, name) = normalize_workspace(workspace)?;
-    let mut guard = state.processes.lock().unwrap();
+    let mut guard = state
+        .processes
+        .lock()
+        .map_err(|_| "进程状态不可用，请重启 Desktop 后重试".to_string())?;
     if let Some(process) = guard.remove(&workspace_key) {
         kill_child_tree(process.child, process.process_group_id);
         let message = "🛑 停止 SolonCode Web".to_string();
