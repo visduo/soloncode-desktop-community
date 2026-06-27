@@ -16,6 +16,7 @@ const pendingUpdatePrompts = [];
 const runningProjects = new Map();
 const startingWorkspaceKeys = new Set();
 const workspaceLogs = new Map();
+const queuedPromptKeys = new Set();
 
 const WORKSPACES_KEY = "soloncode.workspaces";
 const HOME_TAB_KEY = "home";
@@ -209,11 +210,14 @@ function updateVersionFooter(info) {
 function closeUpdateDialog() {
     const dialog = document.getElementById("update-dialog");
     if (dialog) dialog.hidden = true;
-    pendingUpdatePrompts.shift();
+    const closedPrompt = pendingUpdatePrompts.shift();
+    if (closedPrompt?.key) queuedPromptKeys.delete(closedPrompt.key);
     renderNextUpdatePrompt();
 }
 
 function queueUpdatePrompt(prompt) {
+    if (prompt.key && queuedPromptKeys.has(prompt.key)) return;
+    if (prompt.key) queuedPromptKeys.add(prompt.key);
     pendingUpdatePrompts.push(prompt);
     if (pendingUpdatePrompts.length === 1) renderNextUpdatePrompt();
 }
@@ -244,6 +248,7 @@ function renderNextUpdatePrompt() {
 
 function showInstallCliPrompt() {
     queueUpdatePrompt({
+        key: "install-cli",
         title: "CLI 未安装",
         message: "SolonCode CLI 未安装，请先点击右上角安装 CLI。",
         actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
@@ -252,6 +257,7 @@ function showInstallCliPrompt() {
 
 function showJavaPrompt() {
     queueUpdatePrompt({
+        key: "missing-java",
         title: "缺少 Java 环境",
         message: "未检测到 Java 运行环境，请先安装 Java 后再启动 SolonCode Web。",
         actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
@@ -262,6 +268,7 @@ function showUpdatePrompts(info) {
     if (info.cli_update_available && !cliUpdatePromptShown) {
         cliUpdatePromptShown = true;
         queueUpdatePrompt({
+            key: "cli-update",
             title: "CLI 可更新",
             message: "SolonCode CLI 有新版本，请点击右上角更新按钮进行更新。",
             actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
@@ -271,6 +278,7 @@ function showUpdatePrompts(info) {
     const desktopLatest = normalizeVersionText(info.desktop_latest);
     if (info.desktop_update_available && localStorage.getItem(HIDDEN_DESKTOP_UPDATE_KEY) !== desktopLatest) {
         queueUpdatePrompt({
+            key: `desktop-update-${desktopLatest}`,
             title: "Desktop 可更新",
             message: `SolonCode Desktop Community ${desktopLatest} 已发布，请从 GitHub 下载最新安装包。`,
             actions: [
@@ -338,6 +346,7 @@ async function refreshJavaStatus() {
         if (!javaPromptShown) {
             javaPromptShown = true;
             queueUpdatePrompt({
+                key: "java-check-failed",
                 title: "Java 检测失败",
                 message: "Java 运行环境检测失败: " + e,
                 actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
@@ -350,12 +359,13 @@ async function refreshJavaStatus() {
     refreshButtons();
 }
 
-async function refreshEnvironmentStatus() {
-    await refreshJavaStatus();
-    await refreshVersionStatus();
+async function refreshEnvironmentStatus(options = {}) {
+    const [, versionStatus] = await Promise.all([refreshJavaStatus(), refreshVersionStatus(options)]);
+    return versionStatus;
 }
 
-async function refreshVersionStatus() {
+async function refreshVersionStatus(options = {}) {
+    const { preserveInstalledOnError = false } = options;
     try {
         const info = await invoke("check_versions");
         const installed = Boolean(info.installed);
@@ -372,13 +382,18 @@ async function refreshVersionStatus() {
         } else {
             setStatus("CLI 未安装，请先安装", "not-installed");
         }
+        refreshButtons();
+        return info;
     } catch (e) {
         cliUpdateAvailable = false;
-        isInstalled = false;
+        if (!preserveInstalledOnError) {
+            isInstalled = false;
+        }
         renderWorkspaces();
         setStatus("检测失败: " + e, "not-installed");
+        refreshButtons();
+        return { installed: isInstalled, error: String(e) };
     }
-    refreshButtons();
 }
 
 function getWorkspaceName(path) {
@@ -601,7 +616,7 @@ function createWorkspaceItem({ path, name, detail, active, running, removable })
                 setSelectedWorkspace(path);
                 const project = runningProjects.get(getWorkspaceKey(path));
                 if (project) activateProjectTab(project.workspace_key);
-                else handleRun();
+                else handleRun(path);
             },
             {
                 disabled: runDisabled
@@ -668,8 +683,12 @@ async function handleInstall() {
     try {
         await invoke("install_soloncode");
         isInstalled = true;
-        await refreshEnvironmentStatus();
-        setStatus("CLI 安装完成", "installed");
+        const status = await refreshEnvironmentStatus({ preserveInstalledOnError: true });
+        if (status?.error) {
+            appendLog(formatError("CLI 安装完成，但版本检测失败: " + status.error));
+        } else {
+            setStatus("CLI 安装完成", "installed");
+        }
     } catch (e) {
         appendLog(formatError(e));
         setStatus("CLI 安装失败", "not-installed");
@@ -687,8 +706,12 @@ async function handleUpdate() {
     try {
         await invoke("install_soloncode");
         isInstalled = true;
-        await refreshEnvironmentStatus();
-        setStatus("CLI 更新完成", "installed");
+        const status = await refreshEnvironmentStatus({ preserveInstalledOnError: true });
+        if (status?.error) {
+            appendLog(formatError("CLI 更新完成，但版本检测失败: " + status.error));
+        } else {
+            setStatus("CLI 更新完成", "installed");
+        }
     } catch (e) {
         appendLog(formatError("CLI 更新失败: " + e));
         setStatus("CLI 更新失败", "installed");
@@ -697,9 +720,11 @@ async function handleUpdate() {
     }
 }
 
-async function handleRun() {
-    const workspaceKey = getWorkspaceKey(selectedWorkspace);
-    if (isBusy || getActiveProject() || startingWorkspaceKeys.has(workspaceKey)) return;
+async function handleRun(workspace = selectedWorkspace) {
+    const targetWorkspace = workspace || null;
+    const workspaceKey = getWorkspaceKey(targetWorkspace);
+    const activeProject = runningProjects.get(workspaceKey);
+    if (isBusy || activeProject || startingWorkspaceKeys.has(workspaceKey)) return;
     if (!isInstalled) {
         showInstallCliPrompt();
         return;
@@ -709,17 +734,17 @@ async function handleRun() {
         appendLog(
             formatError("未检测到 Java 运行环境，请先安装 Java 后再启动 SolonCode Web"),
             workspaceKey,
-            getWorkspaceName(selectedWorkspace)
+            getWorkspaceName(targetWorkspace)
         );
         refreshButtons();
         return;
     }
     setBusy(true);
     setStatus("正在启动...", "detecting");
-    const workspaceName = getWorkspaceName(selectedWorkspace);
+    const workspaceName = getWorkspaceName(targetWorkspace);
     try {
-        appendLog("📁 本次启动工作区: " + (selectedWorkspace || "用户目录"), workspaceKey, workspaceName);
-        const project = await invoke("start_soloncode", { workspace: selectedWorkspace });
+        appendLog("📁 本次启动工作区: " + (targetWorkspace || "用户目录"), workspaceKey, workspaceName);
+        const project = await invoke("start_soloncode", { workspace: targetWorkspace });
         if (project.already_running) {
             startingWorkspaceKeys.delete(project.workspace_key);
             upsertProject(project);
@@ -826,7 +851,6 @@ window.closeCurrentWorkspace = closeCurrentWorkspace;
 // ─── 监听 Rust 后端事件 ──────────────────────────────────
 
 listen("soloncode-output", (e) => {
-    if (selectedWorkspace) setSelectedWorkspace(null);
     appendLog(String(e.payload));
 });
 

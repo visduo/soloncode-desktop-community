@@ -224,18 +224,18 @@ fn pick_available_port(used_ports: &HashSet<u16>) -> Result<u16, String> {
 fn child_pids(pid: u32) -> Vec<u32> {
     #[cfg(unix)]
     {
-    Command::new("pgrep")
-        .args(["-P", &pid.to_string()])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .filter_map(|line| line.trim().parse::<u32>().ok())
-                .collect()
-        })
-        .unwrap_or_default()
+        Command::new("pgrep")
+            .args(["-P", &pid.to_string()])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| {
+                String::from_utf8_lossy(&output.stdout)
+                    .lines()
+                    .filter_map(|line| line.trim().parse::<u32>().ok())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
     #[cfg(not(unix))]
     {
@@ -244,20 +244,31 @@ fn child_pids(pid: u32) -> Vec<u32> {
     }
 }
 
-fn signal_pid_tree(pid: u32, signal: &str) {
+fn signal_pid(pid: u32, signal: &str) -> bool {
     #[cfg(unix)]
     {
-    for child_pid in child_pids(pid) {
-        signal_pid_tree(child_pid, signal);
-    }
-    let _ = Command::new("kill")
-        .args([format!("-{}", signal), pid.to_string()])
-        .output();
+        Command::new("kill")
+            .args([format!("-{}", signal), pid.to_string()])
+            .output()
+            .is_ok_and(|output| output.status.success())
     }
     #[cfg(not(unix))]
     {
         let _ = (pid, signal);
+        false
     }
+}
+
+fn signal_pid_tree(pid: u32, signal: &str) {
+    #[cfg(unix)]
+    {
+        for child_pid in child_pids(pid) {
+            signal_pid_tree(child_pid, signal);
+        }
+        let _ = signal_pid(pid, signal);
+    }
+    #[cfg(not(unix))]
+    let _ = (pid, signal);
 }
 
 #[cfg(unix)]
@@ -578,7 +589,13 @@ fn run_shell_with_live_output(
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut command = Command::new("powershell");
-        command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script]);
+        command.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ]);
         command.creation_flags(CREATE_NO_WINDOW);
         command
     };
