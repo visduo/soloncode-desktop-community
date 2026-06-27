@@ -78,6 +78,33 @@ struct VersionStatus {
     error: Option<String>,
 }
 
+fn parse_server_port(line: &str) -> Option<u16> {
+    let (_, value) = line.split_once("Server port:")?;
+    value.trim().parse::<u16>().ok()
+}
+
+fn is_local_port_ready(port: u16) -> bool {
+    TcpStream::connect(("127.0.0.1", port)).is_ok()
+        || TcpStream::connect(("::1", port)).is_ok()
+}
+
+fn is_web_service_ready(port: u16) -> bool {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_millis(800))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return false,
+    };
+
+    [
+        format!("http://127.0.0.1:{}/", port),
+        format!("http://[::1]:{}/", port),
+    ]
+    .iter()
+    .any(|url| client.get(url).send().is_ok())
+}
+
 impl Drop for SolonState {
     fn drop(&mut self) {
         cleanup_soloncode_process(self);
@@ -888,8 +915,13 @@ fn start_soloncode(
     let app_out = app.clone();
     let stdout_workspace_key = workspace_key.clone();
     let stdout_name = name.clone();
+    let (server_port_sender, server_port_receiver) = mpsc::channel::<u16>();
+    let stderr_port_sender = server_port_sender.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if let Some(server_port) = parse_server_port(&line) {
+                let _ = server_port_sender.send(server_port);
+            }
             emit_workspace_log(
                 &app_out,
                 &stdout_workspace_key,
@@ -910,6 +942,9 @@ fn start_soloncode(
     let stderr_name = name.clone();
     std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if let Some(server_port) = parse_server_port(&line) {
+                let _ = stderr_port_sender.send(server_port);
+            }
             emit_workspace_log(
                 &app_err,
                 &stderr_workspace_key,
@@ -952,18 +987,47 @@ fn start_soloncode(
         already_running: false,
     };
     std::thread::spawn(move || {
-        let addr = format!("127.0.0.1:{}", port);
+        let mut current_port = port;
+        let mut declared_port = false;
+        let mut ready_payload = ready_payload;
         let mut ready = false;
+        let mut last_port_log = None;
         let mut failed_message = None;
         for i in 0..60 {
-            if TcpStream::connect(&addr).is_ok() {
+            while let Ok(server_port) = server_port_receiver.try_recv() {
+                declared_port = true;
+                if server_port != current_port {
+                    current_port = server_port;
+                    ready_payload.port = server_port;
+                    ready_payload.url = format!("http://localhost:{}/", server_port);
+                    let state = app_nav.state::<SolonState>();
+                    if let Ok(mut guard) = state.processes.lock() {
+                        if let Some(process) = guard.get_mut(&failed_workspace_key) {
+                            process.port = server_port;
+                            process.url = ready_payload.url.clone();
+                        }
+                    };
+                }
+            }
+            if declared_port && last_port_log != Some(current_port) {
+                last_port_log = Some(current_port);
+                emit_workspace_log(
+                    &app_nav,
+                    &failed_workspace_key,
+                    &ready_payload.name,
+                    Some(current_port),
+                    format!("📡 检测到服务端口 {}，等待 Web 服务响应...", current_port),
+                );
+            }
+
+            if is_web_service_ready(current_port) {
                 ready = true;
                 emit_workspace_log(
                     &app_nav,
                     &failed_workspace_key,
                     &ready_payload.name,
-                    Some(port),
-                    format!("✅ 端口 {} 就绪 ({}秒)", port, i / 2),
+                    Some(current_port),
+                    format!("✅ 端口 {} 就绪 ({}秒)", current_port, i / 2),
                 );
                 break;
             }
@@ -983,12 +1047,21 @@ fn start_soloncode(
                 break;
             }
             if i % 4 == 0 {
+                let message = if declared_port {
+                    if is_local_port_ready(current_port) {
+                        format!("⏳ 端口 {} 已监听，等待 Web 服务响应... ({}s)", current_port, i / 2)
+                    } else {
+                        format!("⏳ 已检测到端口 {}，等待服务监听... ({}s)", current_port, i / 2)
+                    }
+                } else {
+                    format!("⏳ 等待 SolonCode 声明服务端口... ({}s)", i / 2)
+                };
                 emit_workspace_log(
                     &app_nav,
                     &failed_workspace_key,
                     &ready_payload.name,
-                    Some(port),
-                    format!("⏳ 等待端口 {}... ({}s)", port, i / 2),
+                    Some(current_port),
+                    message,
                 );
             }
             std::thread::sleep(Duration::from_millis(500));
@@ -1003,13 +1076,20 @@ fn start_soloncode(
             }
             let _ = app_nav.emit("soloncode-ready", &ready_payload);
         } else {
-            let message =
-                failed_message.unwrap_or_else(|| format!("❌ 端口 {} 在30秒内未就绪", port));
+            let message = failed_message.unwrap_or_else(|| {
+                if !declared_port {
+                    "❌ SolonCode 在30秒内未声明服务端口".to_string()
+                } else if !is_local_port_ready(current_port) {
+                    format!("❌ SolonCode 已声明端口 {}，但30秒内没有监听该端口", current_port)
+                } else {
+                    format!("❌ 端口 {} 已监听，但 Web 服务30秒内未响应", current_port)
+                }
+            });
             emit_workspace_log(
                 &app_nav,
                 &failed_workspace_key,
                 &ready_payload.name,
-                Some(port),
+                Some(current_port),
                 &message,
             );
             let state = app_nav.state::<SolonState>();
@@ -1023,7 +1103,7 @@ fn start_soloncode(
                 FailedResult {
                     workspace_key: failed_workspace_key,
                     name: ready_payload.name,
-                    port: Some(port),
+                    port: Some(current_port),
                     message,
                 },
             );
