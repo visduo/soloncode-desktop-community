@@ -148,11 +148,11 @@ function refreshButtons() {
     const activeStarting = isWorkspaceStarting(selectedWorkspace);
     const hasRunningProjects = runningProjects.size > 0;
 
-    btnInstall.disabled = isBusy || isInstalled;
-    btnUpdate.disabled = isBusy || !isInstalled || !cliUpdateAvailable || hasRunningProjects;
+    btnInstall.disabled = isBusy || isInstalled || !isJavaAvailable;
+    btnUpdate.disabled = isBusy || !isInstalled || !isJavaAvailable || !cliUpdateAvailable || hasRunningProjects;
     btnRun.disabled = isBusy || !isInstalled || !isJavaAvailable || Boolean(activeProject) || activeStarting;
     btnStop.disabled = isBusy || (!activeProject && !activeStarting);
-    btnUninstall.disabled = isBusy || !isInstalled || hasRunningProjects;
+    btnUninstall.disabled = isBusy || !isInstalled || !isJavaAvailable || hasRunningProjects;
 
     if (activeProject) {
         btnRun.querySelector(".btn-text").textContent = "运行中...";
