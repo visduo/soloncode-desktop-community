@@ -6,7 +6,7 @@
 
 SolonCode Desktop Community 是一个基于 Tauri 2 构建的轻量桌面启动器，用于管理 SolonCode CLI 的安装、更新、卸载，以及工作区的启动和 Web 界面访问。
 
-### 效果预览
+## 效果预览
 
 ![01](docs/iShot_2026-06-27_21.46.53.png)
 
