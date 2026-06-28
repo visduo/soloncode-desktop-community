@@ -72,19 +72,17 @@ function hydrateStaticIcons() {
     });
 }
 
-function appendLog(text, workspaceKey = HOME_WORKSPACE_KEY, name = "用户目录", port = null) {
-    appendWorkspaceLog({ workspace_key: workspaceKey, name, port, message: text });
+function appendLog(text, workspaceKey = HOME_WORKSPACE_KEY, name = "用户目录") {
+    appendWorkspaceLog({ workspace_key: workspaceKey, name, message: text });
 }
 
 function appendWorkspaceLog(payload) {
     const workspaceKey = payload.workspace_key || "system";
     const entry = workspaceLogs.get(workspaceKey) || {
         name: payload.name || "系统",
-        port: payload.port || null,
         lines: []
     };
     entry.name = payload.name || entry.name;
-    entry.port = payload.port || entry.port;
     entry.lines.push(payload.message || "");
     if (entry.lines.length > MAX_LOG_LINES) {
         entry.lines.splice(0, entry.lines.length - MAX_LOG_LINES);
@@ -198,11 +196,7 @@ function closeWorkspaceMenu() {
 
 function refreshButtons() {
     const btnInstall = document.getElementById("btn-install");
-    const btnRun = document.getElementById("btn-run");
-    const btnStop = document.getElementById("btn-stop");
     const btnUninstall = document.getElementById("btn-uninstall");
-    const activeProject = getActiveProject();
-    const activeStarting = isWorkspaceStarting(selectedWorkspace);
     const hasRunningProjects = runningProjects.size > 0;
     const hasStartingProjects = startingWorkspaceKeys.size > 0;
 
@@ -214,23 +208,8 @@ function refreshButtons() {
     btnInstall.classList.toggle("tool-install", !isInstalled);
     btnInstall.querySelector("span:last-child").textContent = isInstalled ? "更新 CLI" : "安装 CLI";
     setIcon(btnInstall.querySelector(".tool-icon"), installIcon);
-    btnRun.disabled = isBusy || !isInstalled || !isJavaAvailable || activeStarting;
-    btnStop.disabled = isBusy || (!activeProject && !activeStarting);
     btnUninstall.disabled = isBusy || !isInstalled || !isJavaAvailable || hasRunningProjects || hasStartingProjects;
-
-    if (activeProject) {
-        btnRun.querySelector(".btn-text").textContent = "打开服务";
-        setIcon(btnRun.querySelector(".btn-icon"), "external-link");
-        btnRun.querySelector(".btn-desc").textContent = "打开当前运行中的服务";
-    } else if (activeStarting) {
-        btnRun.querySelector(".btn-text").textContent = "正在启动";
-        setIcon(btnRun.querySelector(".btn-icon"), "loader");
-        btnRun.querySelector(".btn-desc").textContent = "等待 Web 服务就绪";
-    } else {
-        btnRun.querySelector(".btn-text").textContent = "启动服务";
-        setIcon(btnRun.querySelector(".btn-icon"), "play");
-        btnRun.querySelector(".btn-desc").textContent = "在当前工作区启动 Web 界面";
-    }
+    updateActiveWorkspace();
 }
 
 function canStartWorkspace(path) {
@@ -558,14 +537,15 @@ function setSelectedWorkspace(path) {
 function updateActiveWorkspace() {
     const name = document.getElementById("active-workspace-name");
     const path = document.getElementById("active-workspace-path");
-    const port = document.getElementById("active-workspace-port");
-    if (!name || !path) return;
+    const status = document.getElementById("active-workspace-status");
+    if (!name || !path || !status) return;
     const activeProject = getActiveProject();
+    const activeStarting = isWorkspaceStarting(selectedWorkspace);
+
     name.textContent = getWorkspaceDisplayName(selectedWorkspace);
     path.textContent = selectedWorkspace || homeWorkspacePath || "用户目录";
-    if (port) {
-        port.textContent = activeProject ? "已运行" : "尚未启动";
-    }
+    status.textContent = activeProject ? "运行中" : activeStarting ? "启动中" : "未启动";
+    status.className = `workspace-status-label ${activeProject ? "running" : activeStarting ? "starting" : ""}`;
 }
 
 function upsertProject(project) {
@@ -642,7 +622,7 @@ async function closeProjectTab(key) {
             runningProjects.size > 0 ? "running" : "installed"
         );
     } catch (e) {
-        appendLog(formatError(e), key, project.name, project.port);
+        appendLog(formatError(e), key, project.name);
     } finally {
         setBusy(false);
     }
@@ -922,15 +902,6 @@ async function handleCliPrimaryAction() {
     await handleInstall();
 }
 
-function handleRunButtonClick() {
-    const activeProject = getActiveProject();
-    if (activeProject) {
-        activateProjectTab(activeProject.workspace_key);
-        return;
-    }
-    handleRun();
-}
-
 async function handleUpdate() {
     if (isBusy || !isInstalled || !cliUpdateAvailable || runningProjects.size > 0) return;
     setSelectedWorkspace(null);
@@ -989,12 +960,9 @@ async function handleRun(workspace = selectedWorkspace) {
             renderWorkspaces();
         }
         appendLog(
-            project.already_running
-                ? `已在运行: ${workspaceDisplayName} (${project.url})`
-                : `SolonCode 启动中: ${workspaceDisplayName} (${project.url})`,
+            project.already_running ? `已在运行: ${workspaceDisplayName}` : `SolonCode 启动中: ${workspaceDisplayName}`,
             project.workspace_key,
-            workspaceDisplayName,
-            project.port
+            workspaceDisplayName
         );
         setStatus("Web 服务启动中...", "running");
     } catch (e) {
@@ -1044,7 +1012,7 @@ async function handleStop() {
             formatError(e),
             workspaceKey,
             project?.name || getWorkspaceName(selectedWorkspace),
-            project?.port || null
+            project?.name || getWorkspaceName(selectedWorkspace)
         );
     } finally {
         setBusy(false);
@@ -1073,7 +1041,7 @@ async function stopWorkspace(path) {
             runningProjects.size > 0 ? "running" : "installed"
         );
     } catch (e) {
-        appendLog(formatError(e), workspaceKey, project?.name || getWorkspaceName(path), project?.port || null);
+        appendLog(formatError(e), workspaceKey, project?.name || getWorkspaceName(path));
     } finally {
         setBusy(false);
     }
@@ -1106,7 +1074,6 @@ window.handleInstall = handleInstall;
 window.handleCliPrimaryAction = handleCliPrimaryAction;
 window.handleUpdate = handleUpdate;
 window.handleRun = handleRun;
-window.handleRunButtonClick = handleRunButtonClick;
 window.handleStop = handleStop;
 window.handleUninstall = handleUninstall;
 window.handleOpenWorkspace = handleOpenWorkspace;
@@ -1126,16 +1093,12 @@ listen("soloncode-workspace-output", (e) => {
     appendWorkspaceLog(e.payload);
 });
 
-listen("soloncode-port", (e) => {
-    appendLog("📡 检测到服务端口: " + e.payload, HOME_WORKSPACE_KEY, "用户目录");
-});
-
 listen("soloncode-ready", (e) => {
     const project = e.payload;
     project.name = getWorkspaceDisplayName(project.workspace, project.name);
     startingWorkspaceKeys.delete(project.workspace_key);
     upsertProject(project);
-    appendLog(`✅ 服务就绪: ${project.name} -> ${project.url}`, project.workspace_key, project.name, project.port);
+    appendLog(`✅ 服务就绪: ${project.name}`, project.workspace_key, project.name);
     setStatus("Web 界面就绪", "running");
     setBusy(false);
     activateProjectTab(project.workspace_key);
@@ -1146,12 +1109,7 @@ listen("soloncode-failed", (e) => {
     const workspaceKey = String(payload.workspace_key || HOME_WORKSPACE_KEY);
     startingWorkspaceKeys.delete(workspaceKey);
     runningProjects.delete(workspaceKey);
-    appendLog(
-        formatError(payload.message || "启动失败"),
-        workspaceKey,
-        payload.name || getWorkspaceName(null),
-        payload.port || null
-    );
+    appendLog(formatError(payload.message || "启动失败"), workspaceKey, payload.name || getWorkspaceName(null));
     setStatus("启动失败", "installed");
     setBusy(false);
 });
@@ -1166,7 +1124,6 @@ async function init() {
     activateHomeTab();
     renderWorkspaces();
     document.getElementById("app-actions").style.display = "flex";
-    document.getElementById("button-group").style.display = "grid";
     document.getElementById("workspace-alias-cancel")?.addEventListener("click", closeWorkspaceAliasDialog);
     document.getElementById("workspace-alias-confirm")?.addEventListener("click", saveWorkspaceAlias);
     document.getElementById("workspace-alias-input")?.addEventListener("keydown", (event) => {

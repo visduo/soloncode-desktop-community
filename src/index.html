@@ -77,28 +77,12 @@
                     </section>
 
                     <section class="main-panel">
-                        <div class="run-card">
+                        <div class="workspace-status-bar">
                             <div>
                                 <h2 id="active-workspace-name">用户目录</h2>
-                                <p id="active-workspace-path">未指定时默认在用户目录启动</p>
-                                <p class="active-port" id="active-workspace-port">尚未启动</p>
+                                <p id="active-workspace-path">用户目录</p>
                             </div>
-                            <div class="button-group" id="button-group" style="display: none">
-                                <button class="btn btn-run" id="btn-run" onclick="handleRunButtonClick()" disabled>
-                                    <span class="btn-icon" data-icon="play" aria-hidden="true"></span>
-                                    <span
-                                        ><span class="btn-text">启动服务</span
-                                        ><span class="btn-desc">在当前工作区启动 Web 界面</span></span
-                                    >
-                                </button>
-                                <button class="btn btn-stop" id="btn-stop" onclick="handleStop()" disabled>
-                                    <span class="btn-icon" data-icon="square" aria-hidden="true"></span>
-                                    <span
-                                        ><span class="btn-text">停止服务</span
-                                        ><span class="btn-desc">停止当前工作区服务</span></span
-                                    >
-                                </button>
-                            </div>
+                            <span class="workspace-status-label" id="active-workspace-status">未启动</span>
                         </div>
 
                         <div class="log-area" id="log-area">

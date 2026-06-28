@@ -225,15 +225,6 @@ button {
     text-overflow: ellipsis;
 }
 
-.tab-port {
-    display: none;
-    padding: 2px 6px;
-    border-radius: 999px;
-    background: #eef4ff;
-    color: var(--accent-strong);
-    font-size: 0.68rem;
-}
-
 .tab-close {
     display: grid;
     place-items: center;
@@ -779,115 +770,58 @@ h1 {
     height: 16px;
 }
 
-.run-card {
+.workspace-status-bar {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 14px;
+    gap: 12px;
     align-items: center;
-    padding: 16px;
+    min-height: 56px;
+    padding: 9px 12px;
     border: 1px solid var(--border);
-    border-radius: 14px;
-    background: linear-gradient(135deg, rgba(234, 243, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 58%), #ffffff;
+    border-radius: 12px;
+    background: #f6f8fb;
 }
 
-.run-card h2 {
+.workspace-status-bar h2 {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 1.32rem;
+    font-size: 0.92rem;
+    font-weight: 750;
 }
 
-.run-card p {
-    margin-top: 8px;
+.workspace-status-bar p {
+    margin-top: 4px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--text-secondary);
-    font-size: 0.84rem;
+    font-size: 0.74rem;
 }
 
-.active-port {
+.workspace-status-label {
     display: inline-flex;
-    width: fit-content;
-    margin-top: 10px !important;
-    padding: 5px 9px;
-    border: 1px solid #cfe0ff;
+    align-items: center;
+    justify-content: center;
+    min-width: 56px;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
     border-radius: 999px;
-    background: #f1f6ff;
-    color: var(--accent-strong) !important;
-    font-size: 0.74rem !important;
-    font-weight: 750;
-}
-
-.button-group {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.btn {
-    display: inline-grid;
-    grid-template-columns: 28px auto;
-    align-items: center;
-    gap: 10px;
-    min-height: 44px;
-    padding: 8px 11px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
     background: #ffffff;
-    color: var(--text-primary);
-    cursor: pointer;
-    text-align: left;
-}
-
-.btn:hover:not(:disabled) {
-    border-color: var(--border-strong);
-    background: var(--panel-soft);
-}
-
-.btn:disabled {
-    opacity: 0.42;
-    cursor: not-allowed;
-}
-
-.btn-icon {
-    display: inline-grid;
-    place-items: center;
-    flex: 0 0 28px;
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    background: #eef2f7;
-    color: var(--text-secondary);
-}
-
-.btn-icon .app-icon {
-    width: 16px;
-    height: 16px;
-}
-
-.btn-text {
-    display: block;
-    font-size: 0.86rem;
+    color: var(--text-muted);
+    font-size: 0.72rem;
     font-weight: 750;
 }
 
-.btn-desc {
-    display: none;
+.workspace-status-label.running {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+    color: var(--green);
 }
 
-.btn-run:not(:disabled) .btn-icon {
-    background: #dbeafe;
-    color: var(--accent-strong);
-}
-
-.btn-run:disabled .btn-icon {
-    background: #dbeafe;
-    color: var(--accent-strong);
-}
-
-.btn-stop:not(:disabled) .btn-icon {
-    background: #fef3c7;
+.workspace-status-label.starting {
+    border-color: #fde68a;
+    background: #fffbeb;
     color: var(--yellow);
 }
 
@@ -1067,12 +1001,8 @@ h1 {
         min-height: 0;
     }
 
-    .run-card {
+    .workspace-status-bar {
         grid-template-columns: 1fr;
-    }
-
-    .button-group {
-        display: grid;
     }
 
     .log-area {
