@@ -20,6 +20,7 @@ const workspaceLogs = new Map();
 const queuedPromptKeys = new Set();
 let editingWorkspacePath = null;
 let openWorkspaceMenuKey = null;
+let openRunMenuKey = null;
 
 const WORKSPACES_KEY = "soloncode.workspaces";
 const WORKSPACE_ALIASES_KEY = "soloncode.workspaceAliases";
@@ -27,6 +28,23 @@ const HOME_TAB_KEY = "home";
 const HOME_WORKSPACE_KEY = "__home__";
 const HIDDEN_STUDIO_UPDATE_KEY = "soloncode.hiddenStudioUpdate";
 const MAX_LOG_LINES = 500;
+const LAUNCH_MODES = {
+    web: "web",
+    cli: "cli"
+};
+const RUN_TARGETS = {
+    webInternal: "web-internal",
+    webSystem: "web-system",
+    cliInternal: "cli-internal",
+    cliSystem: "cli-system"
+};
+const RUN_TARGET_OPTIONS = [
+    { key: RUN_TARGETS.webInternal, mode: LAUNCH_MODES.web, label: "运行 Web（内置浏览器）", external: false },
+    { key: RUN_TARGETS.webSystem, mode: LAUNCH_MODES.web, label: "运行 Web（系统浏览器）", external: true },
+    { key: RUN_TARGETS.cliInternal, mode: LAUNCH_MODES.cli, label: "运行 CLI（内置终端）", external: false },
+    { key: RUN_TARGETS.cliSystem, mode: LAUNCH_MODES.cli, label: "运行 CLI（系统终端）", external: true }
+];
+const pendingRunTargets = new Map();
 const logViewState = {
     query: "",
     filter: "all",
@@ -242,7 +260,28 @@ function getWorkspaceKey(path) {
 }
 
 function getActiveProject() {
-    return runningProjects.get(getWorkspaceKey(selectedWorkspace));
+    return getRunningProjectByWorkspace(selectedWorkspace);
+}
+
+function getModeLabel(mode) {
+    return mode === LAUNCH_MODES.cli ? "CLI" : "Web";
+}
+
+function formatModeLog(mode, text) {
+    return text;
+}
+
+function makeProjectKey(workspace, mode = LAUNCH_MODES.web) {
+    return `${getWorkspaceKey(workspace)}::${mode}`;
+}
+
+function getProjectByWorkspace(workspace, mode = LAUNCH_MODES.web) {
+    return runningProjects.get(makeProjectKey(workspace, mode));
+}
+
+function getProjectsByWorkspace(workspace) {
+    const baseKey = `${getWorkspaceKey(workspace)}::`;
+    return [...runningProjects.values()].filter((project) => project.project_key.startsWith(baseKey));
 }
 
 function isWorkspaceStarting(path) {
@@ -256,9 +295,16 @@ function formatError(message) {
 
 function setBusy(busy) {
     isBusy = busy;
-    if (busy) openWorkspaceMenuKey = null;
+    if (busy) {
+        openWorkspaceMenuKey = null;
+        openRunMenuKey = null;
+    }
     renderWorkspaces();
     refreshButtons();
+}
+
+function getRunningProjectByWorkspace(workspace) {
+    return getProjectsByWorkspace(workspace)[0] || null;
 }
 
 function toggleWorkspaceMenu(workspaceKey) {
@@ -269,6 +315,18 @@ function toggleWorkspaceMenu(workspaceKey) {
 function closeWorkspaceMenu() {
     if (openWorkspaceMenuKey === null) return;
     openWorkspaceMenuKey = null;
+    renderWorkspaces();
+}
+
+function toggleRunMenu(workspaceKey) {
+    openRunMenuKey = openRunMenuKey === workspaceKey ? null : workspaceKey;
+    openWorkspaceMenuKey = null;
+    renderWorkspaces();
+}
+
+function closeRunMenu() {
+    if (openRunMenuKey === null) return;
+    openRunMenuKey = null;
     renderWorkspaces();
 }
 
@@ -291,7 +349,9 @@ function refreshButtons() {
 }
 
 function canStartWorkspace(path) {
-    return isInstalled && isJavaAvailable && !isBusy && !isWorkspaceStarting(path);
+    return (
+        isInstalled && isJavaAvailable && !isBusy && !isWorkspaceStarting(path) && !getRunningProjectByWorkspace(path)
+    );
 }
 
 function formatVersion(current, latest, needsUpdate, installed = true) {
@@ -634,13 +694,18 @@ function updateActiveWorkspace() {
     name.textContent = getWorkspaceDisplayName(selectedWorkspace);
     path.textContent = selectedWorkspace || homeWorkspacePath || "用户目录";
     path.title = path.textContent;
-    status.textContent = activeProject ? "运行中" : activeStarting ? "启动中" : "未启动";
+    status.textContent = activeProject
+        ? `${getModeLabel(activeProject.mode)} 运行中`
+        : activeStarting
+          ? "启动中"
+          : "未启动";
     status.className = `workspace-status-label ${activeProject ? "running" : activeStarting ? "starting" : ""}`;
 }
 
 function upsertProject(project) {
     project.name = getWorkspaceDisplayName(project.workspace, project.name);
-    runningProjects.set(project.workspace_key, project);
+    project.project_key = `${project.workspace_key}::${project.mode || LAUNCH_MODES.web}`;
+    runningProjects.set(project.project_key, project);
     renderTabs();
     renderWorkspaces();
 }
@@ -667,9 +732,13 @@ function removeProjectFrame(key) {
     projectFrames.delete(key);
 }
 
+function shouldRenderProjectTab(project) {
+    return project.launch_target !== RUN_TARGETS.webSystem && project.launch_target !== RUN_TARGETS.cliSystem;
+}
+
 function activateProjectTab(key) {
     const project = runningProjects.get(key);
-    if (!project) {
+    if (!project || !shouldRenderProjectTab(project)) {
         activateHomeTab();
         return;
     }
@@ -682,17 +751,68 @@ function activateProjectTab(key) {
     hideProjectFrames();
     let frame = projectFrames.get(key);
     if (!frame) {
-        frame = document.createElement("iframe");
-        frame.className = "project-frame";
-        frame.title = project.name;
-        frame.src = project.url;
+        frame = createProjectView(project);
         projectView.appendChild(frame);
         projectFrames.set(key, frame);
     } else {
-        frame.title = project.name;
+        updateProjectView(frame, project);
     }
     frame.style.display = "block";
     renderTabs();
+}
+
+function createProjectView(project) {
+    if (project.mode === LAUNCH_MODES.cli) {
+        const panel = document.createElement("div");
+        panel.className = "project-terminal";
+        panel.dataset.projectKey = project.project_key;
+        panel.innerHTML = `
+            <div class="terminal-surface" tabindex="0" role="textbox" aria-label="SolonCode CLI 终端">
+                <pre class="terminal-output"></pre>
+                <input class="terminal-hidden-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
+            </div>
+        `;
+        const surface = panel.querySelector(".terminal-surface");
+        const input = panel.querySelector(".terminal-hidden-input");
+        surface.addEventListener("click", () => input.focus());
+        input.addEventListener("input", (event) => handleTerminalInput(event, input, project.project_key));
+        input.addEventListener("keydown", (event) => handleTerminalKeydown(event, project.project_key));
+        input.addEventListener("compositionend", (event) => handleTerminalInput(event, input, project.project_key));
+        input.addEventListener("paste", (event) => handleTerminalPaste(event, project.project_key));
+        updateProjectView(panel, project);
+        return panel;
+    }
+
+    const frame = document.createElement("iframe");
+    frame.className = "project-frame";
+    updateProjectView(frame, project);
+    return frame;
+}
+
+function updateProjectView(element, project) {
+    if (project.mode === LAUNCH_MODES.cli) {
+        element.dataset.projectKey = project.project_key;
+        const output = element.querySelector(".terminal-output");
+        if (output) {
+            renderAnsiTerminalOutput(output, project.terminal_output || "", project.terminal_input || "");
+        }
+        const surface = element.querySelector(".terminal-surface");
+        if (surface) scrollTerminalToBottom(surface);
+        const input = element.querySelector(".terminal-hidden-input");
+        if (input && input.value !== "") input.value = "";
+        if (document.activeElement !== input) input?.focus();
+        return;
+    }
+    element.title = project.name;
+    element.src = project.url;
+}
+
+function scrollTerminalToBottom(surface) {
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            surface.scrollTop = surface.scrollHeight;
+        });
+    });
 }
 
 async function closeProjectTab(key) {
@@ -700,8 +820,11 @@ async function closeProjectTab(key) {
     if (!project || isBusy) return;
     setBusy(true);
     try {
-        await invoke("stop_soloncode", { workspace: project.workspace });
+        if (project.launch_target !== RUN_TARGETS.cliSystem) {
+            await invoke("stop_soloncode", { workspace: project.workspace, mode: project.mode });
+        }
         runningProjects.delete(key);
+        startingWorkspaceKeys.delete(project.workspace_key);
         removeProjectFrame(key);
         if (activeTabKey === key) activateHomeTab();
         else renderTabs();
@@ -736,15 +859,16 @@ function renderTabs() {
     tabBar.appendChild(homeTab);
 
     for (const project of runningProjects.values()) {
+        if (!shouldRenderProjectTab(project)) continue;
         const tab = document.createElement("button");
-        tab.className = "tab-item" + (activeTabKey === project.workspace_key ? " active" : "");
+        tab.className = "tab-item" + (activeTabKey === project.project_key ? " active" : "");
         tab.type = "button";
         tab.innerHTML = `<span class="tab-main"><span class="tab-dot running"></span><span class="tab-label"></span></span><span class="tab-close">${iconSvg("close")}</span>`;
         tab.querySelector(".tab-label").textContent = project.name;
-        tab.addEventListener("click", () => activateProjectTab(project.workspace_key));
+        tab.addEventListener("click", () => activateProjectTab(project.project_key));
         tab.querySelector(".tab-close").addEventListener("click", (event) => {
             event.stopPropagation();
-            closeProjectTab(project.workspace_key);
+            closeProjectTab(project.project_key);
         });
         tabBar.appendChild(tab);
     }
@@ -843,6 +967,49 @@ function createWorkspaceMenu(path, removable) {
     return menuWrap;
 }
 
+function createRunMenuItem(option, path, disabled) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "workspace-menu-item run-target-menu-item";
+    button.disabled = disabled;
+    button.textContent = option.label;
+    button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        closeRunMenu();
+        handleRun(path, option.key);
+    });
+    return button;
+}
+
+function createRunMenu(path, disabled) {
+    const workspaceKey = getWorkspaceKey(path);
+    const menuWrap = document.createElement("div");
+    menuWrap.className = "workspace-menu-wrap";
+
+    const trigger = createWorkspaceButton(
+        "play",
+        disabled ? "启动不可用" : "选择运行方式",
+        "run",
+        () => toggleRunMenu(workspaceKey),
+        {
+            disabled
+        }
+    );
+    trigger.setAttribute("aria-expanded", openRunMenuKey === workspaceKey ? "true" : "false");
+    menuWrap.appendChild(trigger);
+
+    if (openRunMenuKey === workspaceKey && !disabled) {
+        const menu = document.createElement("div");
+        menu.className = "workspace-menu run-target-menu";
+        for (const option of RUN_TARGET_OPTIONS) {
+            menu.appendChild(createRunMenuItem(option, path, disabled));
+        }
+        menuWrap.appendChild(menu);
+    }
+
+    return menuWrap;
+}
+
 function createWorkspaceButton(icon, title, className, onClick, options = {}) {
     const button = document.createElement("button");
     button.type = "button";
@@ -882,26 +1049,22 @@ function createWorkspaceItem({ path, name, detail, active, running, removable })
 
     const actions = document.createElement("div");
     actions.className = "workspace-actions";
+    const currentProject = getRunningProjectByWorkspace(path);
     const workspaceStarting = isWorkspaceStarting(path);
-    const runDisabled = !running && !canStartWorkspace(path);
-    actions.appendChild(
-        createWorkspaceButton(
-            running ? "open" : "play",
-            running ? "打开服务" : workspaceStarting ? "启动中" : "启动工作区",
-            "run",
-            () => {
+    if (currentProject) {
+        actions.appendChild(
+            createWorkspaceButton("open", `打开${getModeLabel(currentProject.mode)}`, "run", () => {
                 setSelectedWorkspace(path);
-                const project = runningProjects.get(getWorkspaceKey(path));
-                if (project) activateProjectTab(project.workspace_key);
-                else handleRun(path);
-            },
-            {
-                disabled: runDisabled
-            }
-        )
-    );
-    if (running) {
-        actions.appendChild(createWorkspaceButton("stop", "停止服务", "stop", () => stopWorkspace(path)));
+                openRunningProject(currentProject);
+            })
+        );
+        actions.appendChild(
+            createWorkspaceButton("stop", `停止${getModeLabel(currentProject.mode)}`, "stop", () =>
+                stopWorkspace(path, currentProject.mode)
+            )
+        );
+    } else {
+        actions.appendChild(createRunMenu(path, workspaceStarting || !canStartWorkspace(path)));
     }
     actions.appendChild(createWorkspaceMenu(path, removable));
     item.appendChild(actions);
@@ -919,7 +1082,7 @@ function renderWorkspaces() {
     list.innerHTML = "";
     updateActiveWorkspace();
 
-    const homeProject = runningProjects.get(HOME_WORKSPACE_KEY);
+    const homeProject = getProjectsByWorkspace(null).length > 0;
     list.appendChild(
         createWorkspaceItem({
             path: null,
@@ -932,7 +1095,7 @@ function renderWorkspaces() {
     );
 
     for (const workspace of workspaces) {
-        const project = runningProjects.get(getWorkspaceKey(workspace));
+        const project = getProjectsByWorkspace(workspace).length > 0;
         list.appendChild(
             createWorkspaceItem({
                 path: workspace,
@@ -1023,11 +1186,13 @@ async function performUpdate() {
     }
 }
 
-async function handleRun(workspace = selectedWorkspace) {
+async function handleRun(workspace = selectedWorkspace, target = RUN_TARGETS.webInternal) {
     const targetWorkspace = workspace || null;
     const workspaceKey = getWorkspaceKey(targetWorkspace);
-    const activeProject = runningProjects.get(workspaceKey);
-    if (isBusy || activeProject || startingWorkspaceKeys.has(workspaceKey)) return;
+    const option = RUN_TARGET_OPTIONS.find((item) => item.key === target) || RUN_TARGET_OPTIONS[0];
+    const projectKey = makeProjectKey(targetWorkspace, option.mode);
+    setSelectedWorkspace(targetWorkspace);
+    if (isBusy || getRunningProjectByWorkspace(targetWorkspace) || startingWorkspaceKeys.has(workspaceKey)) return;
     if (!isInstalled) {
         showInstallCliPrompt();
         return;
@@ -1047,29 +1212,62 @@ async function handleRun(workspace = selectedWorkspace) {
     const workspaceName = getWorkspaceName(targetWorkspace);
     const workspaceDisplayName = getWorkspaceDisplayName(targetWorkspace, workspaceName);
     try {
-        appendLog("📁 本次启动工作区: " + (targetWorkspace || "用户目录"), workspaceKey, workspaceDisplayName);
-        const project = await invoke("start_soloncode", { workspace: targetWorkspace });
+        appendLog(`📁 本次启动工作区: ${targetWorkspace || "用户目录"}`, workspaceKey, workspaceDisplayName);
+        if (target === RUN_TARGETS.cliSystem) {
+            await invoke("open_soloncode_system_terminal", { workspace: targetWorkspace });
+            appendLog(`已打开系统终端: ${workspaceDisplayName}`, workspaceKey, workspaceDisplayName);
+            setStatus(
+                runningProjects.size > 0 ? "部分工作区运行中" : "未启动",
+                runningProjects.size > 0 ? "running" : "installed"
+            );
+            renderWorkspaces();
+            return;
+        }
+
+        pendingRunTargets.set(projectKey, target);
+        const project = await invoke("start_soloncode", { workspace: targetWorkspace, mode: option.mode });
+        project.launch_target = target;
+        project.external = option.external;
         if (project.already_running) {
             startingWorkspaceKeys.delete(project.workspace_key);
             upsertProject(project);
-            activateProjectTab(project.workspace_key);
+            await openRunningProject(project);
+        } else if (target === RUN_TARGETS.cliInternal) {
+            startingWorkspaceKeys.delete(project.workspace_key);
+            upsertProject(project);
+            await openRunningProject(project);
         } else {
             startingWorkspaceKeys.add(project.workspace_key);
             renderWorkspaces();
         }
         appendLog(
-            project.already_running ? `已在运行: ${workspaceDisplayName}` : `SolonCode 启动中: ${workspaceDisplayName}`,
+            project.already_running ? `已在运行: ${workspaceDisplayName}` : `启动中: ${workspaceDisplayName}`,
             project.workspace_key,
             workspaceDisplayName
         );
-        setStatus("Web 服务启动中...", "running");
+        setStatus(
+            target === RUN_TARGETS.cliInternal
+                ? `${getModeLabel(option.mode)} 运行中`
+                : `${getModeLabel(option.mode)} 启动中...`,
+            "running"
+        );
     } catch (e) {
+        pendingRunTargets.delete(projectKey);
         startingWorkspaceKeys.delete(workspaceKey);
         appendLog(formatError(e), workspaceKey, workspaceDisplayName);
         setStatus("启动失败", "installed");
     } finally {
         setBusy(false);
     }
+}
+
+async function openRunningProject(project) {
+    if (project.launch_target === RUN_TARGETS.webSystem) {
+        if (project.url) await invoke("open_external_url", { url: project.url });
+        return;
+    }
+    if (project.launch_target === RUN_TARGETS.cliSystem || project.external) return;
+    activateProjectTab(project.project_key);
 }
 
 async function handleOpenWorkspace() {
@@ -1086,16 +1284,17 @@ async function handleOpenWorkspace() {
 
 async function handleStop() {
     const workspaceKey = getWorkspaceKey(selectedWorkspace);
-    const project = runningProjects.get(workspaceKey);
+    const project = getRunningProjectByWorkspace(selectedWorkspace);
     const workspaceStarting = startingWorkspaceKeys.has(workspaceKey);
     if (isBusy || (!project && !workspaceStarting)) return;
     setBusy(true);
     try {
-        await invoke("stop_soloncode", { workspace: selectedWorkspace });
-        runningProjects.delete(workspaceKey);
+        if (project && project.launch_target !== RUN_TARGETS.cliSystem)
+            await invoke("stop_soloncode", { workspace: selectedWorkspace, mode: project.mode });
+        if (project) runningProjects.delete(project.project_key);
         startingWorkspaceKeys.delete(workspaceKey);
-        removeProjectFrame(workspaceKey);
-        if (activeTabKey === workspaceKey) {
+        if (project) removeProjectFrame(project.project_key);
+        if (project && activeTabKey === project.project_key) {
             activateHomeTab();
         } else {
             renderTabs();
@@ -1117,18 +1316,19 @@ async function handleStop() {
     }
 }
 
-async function stopWorkspace(path) {
+async function stopWorkspace(path, mode = LAUNCH_MODES.web) {
     const workspaceKey = getWorkspaceKey(path);
-    const project = runningProjects.get(workspaceKey);
+    const project = getProjectByWorkspace(path, mode);
     const workspaceStarting = startingWorkspaceKeys.has(workspaceKey);
     if (isBusy || (!project && !workspaceStarting)) return;
     setBusy(true);
     try {
-        await invoke("stop_soloncode", { workspace: path });
-        runningProjects.delete(workspaceKey);
+        if (project && project.launch_target !== RUN_TARGETS.cliSystem)
+            await invoke("stop_soloncode", { workspace: path, mode });
+        if (project) runningProjects.delete(project.project_key);
         startingWorkspaceKeys.delete(workspaceKey);
-        removeProjectFrame(workspaceKey);
-        if (activeTabKey === workspaceKey) {
+        if (project) removeProjectFrame(project.project_key);
+        if (project && activeTabKey === project.project_key) {
             activateHomeTab();
         } else {
             renderTabs();
@@ -1205,19 +1405,27 @@ listen("soloncode-workspace-output", (e) => {
 listen("soloncode-ready", (e) => {
     const project = e.payload;
     project.name = getWorkspaceDisplayName(project.workspace, project.name);
+    const pendingTarget = pendingRunTargets.get(project.project_key) || RUN_TARGETS.webInternal;
+    pendingRunTargets.delete(project.project_key);
+    project.launch_target = pendingTarget;
+    project.external = RUN_TARGET_OPTIONS.find((option) => option.key === pendingTarget)?.external || false;
+    const alreadyShownAsRunning = runningProjects.has(project.project_key) && pendingTarget === RUN_TARGETS.cliInternal;
     startingWorkspaceKeys.delete(project.workspace_key);
     upsertProject(project);
-    appendLog(`✅ 服务就绪: ${project.name}`, project.workspace_key, project.name);
-    setStatus("Web 界面就绪", "running");
+    if (!alreadyShownAsRunning)
+        appendLog(formatModeLog(project.mode, `✅ 就绪: ${project.name}`), project.workspace_key, project.name);
+    setStatus(`${getModeLabel(project.mode)} 已就绪`, "running");
     setBusy(false);
-    activateProjectTab(project.workspace_key);
+    if (!alreadyShownAsRunning) openRunningProject(project);
 });
 
 listen("soloncode-failed", (e) => {
     const payload = typeof e.payload === "object" && e.payload ? e.payload : { workspace_key: e.payload };
     const workspaceKey = String(payload.workspace_key || HOME_WORKSPACE_KEY);
     startingWorkspaceKeys.delete(workspaceKey);
-    runningProjects.delete(workspaceKey);
+    for (const project of getProjectsByWorkspace(payload.workspace || null)) {
+        if (project.workspace_key === workspaceKey) runningProjects.delete(project.project_key);
+    }
     appendLog(formatError(payload.message || "启动失败"), workspaceKey, payload.name || getWorkspaceName(null));
     setStatus("启动失败", "installed");
     setBusy(false);
@@ -1248,6 +1456,7 @@ async function init() {
     });
     document.addEventListener("click", (event) => {
         if (!event.target.closest(".workspace-menu-wrap")) {
+            closeRunMenu();
             closeWorkspaceMenu();
         }
     });
@@ -1256,5 +1465,132 @@ async function init() {
     await refreshInstallStatus();
     await refreshEnvironmentStatus();
 }
+
+async function sendCliInput(projectKey, input) {
+    const project = runningProjects.get(projectKey);
+    if (!project) return;
+    try {
+        const response = await invoke("send_cli_input", { workspace: project.workspace, input });
+        project.terminal_output = response.output || project.terminal_output || "";
+        upsertProject(project);
+    } catch (e) {
+        appendLog(formatError(e), project.workspace_key, project.name);
+    }
+}
+
+function renderAnsiTerminalOutput(element, text, pendingInput = "") {
+    element.textContent = "";
+    let currentClass = "";
+    let lastIndex = 0;
+    const ansiPattern = /\x1b\[([0-9;]*)m/g;
+
+    for (const match of text.matchAll(ansiPattern)) {
+        appendTerminalText(element, text.slice(lastIndex, match.index), currentClass);
+        currentClass = getAnsiClass(match[1], currentClass);
+        lastIndex = match.index + match[0].length;
+    }
+    appendTerminalText(element, stripAnsiControls(text.slice(lastIndex)), currentClass);
+    if (pendingInput) element.appendChild(document.createTextNode(pendingInput));
+    const caret = document.createElement("span");
+    caret.className = "terminal-caret";
+    element.appendChild(caret);
+}
+
+function appendTerminalText(element, text, className) {
+    const cleanText = stripAnsiControls(text);
+    if (!cleanText) return;
+    if (!className) {
+        element.appendChild(document.createTextNode(cleanText));
+        return;
+    }
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = cleanText;
+    element.appendChild(span);
+}
+
+function stripAnsiControls(text) {
+    return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
+}
+
+function getAnsiClass(sequence, currentClass) {
+    const codes = sequence
+        .split(";")
+        .filter(Boolean)
+        .map((code) => Number.parseInt(code, 10));
+    if (codes.length === 0 || codes.includes(0)) return "";
+    let className = currentClass;
+    for (const code of codes) {
+        if (code === 1) className = appendAnsiClass(className, "ansi-bold");
+        if (code === 2) className = appendAnsiClass(className, "ansi-dim");
+        if (code === 22) className = className.replace(/\bansi-(bold|dim)\b/g, "").trim();
+    }
+    return className;
+}
+
+function appendAnsiClass(className, nextClass) {
+    return className.includes(nextClass) ? className : `${className} ${nextClass}`.trim();
+}
+
+function handleTerminalInput(event, input, projectKey) {
+    const project = runningProjects.get(projectKey);
+    if (!project || !input.value || event.isComposing) return;
+    project.terminal_input = (project.terminal_input || "") + input.value;
+    input.value = "";
+    updateProjectView(projectFrames.get(projectKey), project);
+}
+
+async function handleTerminalKeydown(event, projectKey) {
+    const project = runningProjects.get(projectKey);
+    if (!project) return;
+
+    if (event.key === "Enter") {
+        event.preventDefault();
+        const input = project.terminal_input || "";
+        project.terminal_input = "";
+        updateProjectView(projectFrames.get(projectKey), project);
+        if (input.trim()) await sendCliInput(projectKey, input);
+        return;
+    }
+
+    if (event.key === "Backspace") {
+        if (!event.currentTarget.value) {
+            event.preventDefault();
+            project.terminal_input = (project.terminal_input || "").slice(0, -1);
+            updateProjectView(projectFrames.get(projectKey), project);
+        }
+        return;
+    }
+
+    if (event.key === "Escape") {
+        event.preventDefault();
+        project.terminal_input = "";
+        updateProjectView(projectFrames.get(projectKey), project);
+        return;
+    }
+
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") {
+        return;
+    }
+}
+
+function handleTerminalPaste(event, projectKey) {
+    const project = runningProjects.get(projectKey);
+    if (!project) return;
+    const pastedText = event.clipboardData?.getData("text") || "";
+    if (!pastedText) return;
+    event.preventDefault();
+    project.terminal_input = (project.terminal_input || "") + pastedText.replace(/\r/g, "");
+    updateProjectView(projectFrames.get(projectKey), project);
+}
+
+listen("soloncode-cli-output", (e) => {
+    const payload = e.payload;
+    const project = runningProjects.get(`${payload.workspace_key}::cli`);
+    if (!project) return;
+    project.terminal_output = payload.output || "";
+    const panel = projectFrames.get(project.project_key);
+    if (panel) updateProjectView(panel, project);
+});
 
 window.addEventListener("DOMContentLoaded", init);

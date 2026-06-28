@@ -1,14 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader, Write};
+use std::fs;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::{mpsc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, RunEvent};
 
@@ -22,6 +25,7 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 struct SolonState {
     processes: Mutex<HashMap<String, SolonProcess>>,
+    cli_outputs: Arc<Mutex<HashMap<String, String>>>,
 }
 
 struct SolonProcess {
@@ -32,16 +36,46 @@ struct SolonProcess {
     workspace: Option<String>,
     name: String,
     ready: bool,
+    mode: String,
 }
 
 #[derive(Serialize, Clone)]
 struct StartResult {
+    project_key: String,
     workspace_key: String,
     workspace: Option<String>,
     name: String,
     port: u16,
     url: String,
     already_running: bool,
+    mode: String,
+    command_preview: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+struct CliOutput {
+    workspace_key: String,
+    output: String,
+}
+
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum LaunchMode {
+    Web,
+    Cli,
+}
+
+impl LaunchMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            LaunchMode::Web => "web",
+            LaunchMode::Cli => "cli",
+        }
+    }
+}
+
+fn project_key(workspace_key: &str, mode: LaunchMode) -> String {
+    format!("{}::{}", workspace_key, mode.as_str())
 }
 
 #[derive(Serialize, Clone)]
@@ -398,6 +432,50 @@ fn emit_workspace_log(
     );
 }
 
+fn emit_buffered_workspace_logs(
+    app: &tauri::AppHandle,
+    workspace_key: &str,
+    name: &str,
+    port: Option<u16>,
+    line_buffer: &mut String,
+    prefix: Option<&str>,
+) {
+    while let Some(index) = line_buffer.find('\n') {
+        let line = line_buffer[..index].trim_end_matches('\r');
+        let message = match prefix {
+            Some(prefix) => format!("{}{}", prefix, line),
+            None => line.to_string(),
+        };
+        emit_workspace_log(app, workspace_key, name, port, message);
+        line_buffer.drain(..=index);
+    }
+}
+
+fn decode_utf8_chunk(pending: &mut Vec<u8>, bytes: &[u8]) -> String {
+    pending.extend_from_slice(bytes);
+    match std::str::from_utf8(pending) {
+        Ok(text) => {
+            let decoded = text.to_string();
+            pending.clear();
+            decoded
+        }
+        Err(error) => {
+            let valid_up_to = error.valid_up_to();
+            if error.error_len().is_some() {
+                let decoded = String::from_utf8_lossy(pending).into_owned();
+                pending.clear();
+                decoded
+            } else {
+                let decoded = String::from_utf8_lossy(&pending[..valid_up_to]).into_owned();
+                let remainder = pending[valid_up_to..].to_vec();
+                pending.clear();
+                pending.extend_from_slice(&remainder);
+                decoded
+            }
+        }
+    }
+}
+
 fn parse_soloncode_version(output: &str) -> Option<String> {
     output
         .split_whitespace()
@@ -625,6 +703,70 @@ fn open_studio_website_page() -> Result<(), String> {
     open_url("https://soloncode.studio/")
 }
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    open_url(&url)
+}
+
+#[tauri::command]
+fn open_soloncode_system_terminal(workspace: Option<String>) -> Result<(), String> {
+    let (_, _, workspace_path, _) = normalize_workspace(workspace)?;
+    let soloncode_path = find_soloncode_path().ok_or("SolonCode CLI 未安装，请先点击「安装 CLI」")?;
+    let script = format!(
+        "cd {} && {} cli",
+        shell_quote(&workspace_path.to_string_lossy()),
+        shell_quote(&soloncode_path)
+    );
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let launcher_path = std::env::temp_dir().join(format!(
+            "soloncode-cli-{}.command",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|duration| duration.as_millis())
+                .unwrap_or(0)
+        ));
+        fs::write(&launcher_path, format!("#!/bin/sh\n{}\n", script))
+            .map_err(|e| format!("创建系统终端启动脚本失败: {}", e))?;
+        let mut permissions = fs::metadata(&launcher_path)
+            .map_err(|e| format!("读取系统终端启动脚本权限失败: {}", e))?
+            .permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&launcher_path, permissions)
+            .map_err(|e| format!("设置系统终端启动脚本权限失败: {}", e))?;
+
+        let mut command = Command::new("open");
+        command.args(["-a", "Terminal"]);
+        command.arg(&launcher_path);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "SolonCode CLI", "cmd", "/K", &script]);
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    };
+
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut command = Command::new("x-terminal-emulator");
+        command.args(["-e", "bash", "-lc", &script]);
+        command
+    };
+
+    command
+        .spawn()
+        .map_err(|e| format!("打开系统终端失败: {}", e))?;
+    Ok(())
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 fn open_url(url: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = {
@@ -820,8 +962,10 @@ fn start_soloncode(
     app: tauri::AppHandle,
     state: tauri::State<SolonState>,
     workspace: Option<String>,
+    mode: LaunchMode,
 ) -> Result<StartResult, String> {
     let (workspace_key, workspace_value, workspace_path, name) = normalize_workspace(workspace)?;
+    let process_key = project_key(&workspace_key, mode);
 
     // 检查该工作区是否已在运行（清理已死的旧进程）
     {
@@ -829,22 +973,25 @@ fn start_soloncode(
             .processes
             .lock()
             .map_err(|_| "进程状态不可用，请重启 Studio 后重试".to_string())?;
-        if let Some(process) = guard.get_mut(&workspace_key) {
+        if let Some(process) = guard.get_mut(&process_key) {
             match process.child.try_wait() {
                 Ok(Some(_)) | Err(_) => {
-                    guard.remove(&workspace_key);
+                    guard.remove(&process_key);
                 }
                 Ok(None) => {
                     if !process.ready {
                         return Err(format!("{} 正在启动，请稍后", process.name));
                     }
                     return Ok(StartResult {
+                        project_key: process_key.clone(),
                         workspace_key,
                         workspace: process.workspace.clone(),
                         name: process.name.clone(),
                         port: process.port,
                         url: process.url.clone(),
                         already_running: true,
+                        mode: process.mode.clone(),
+                        command_preview: (mode == LaunchMode::Cli).then_some("soloncode cli".to_string()),
                     });
                 }
             }
@@ -865,15 +1012,27 @@ fn start_soloncode(
         .values()
         .map(|process| process.port)
         .collect();
-    let port = pick_available_port(&used_ports)?;
-    let url = format!("http://localhost:{}/", port);
+    let port = if mode == LaunchMode::Web {
+        pick_available_port(&used_ports)?
+    } else {
+        0
+    };
+    let url = if mode == LaunchMode::Web {
+        format!("http://localhost:{}/", port)
+    } else {
+        String::new()
+    };
 
     emit_workspace_log(
         &app,
         &workspace_key,
         &name,
-        Some(port),
-        format!("🚀 启动 SolonCode (端口: {})", port),
+        (mode == LaunchMode::Web).then_some(port),
+        if mode == LaunchMode::Web {
+            format!("🚀 启动 SolonCode Web (端口: {})", port)
+        } else {
+            "🚀 启动 SolonCode CLI".to_string()
+        },
     );
 
     // 构建 shell 环境 PATH
@@ -893,16 +1052,26 @@ fn start_soloncode(
     }
 
     #[cfg(not(target_os = "windows"))]
-    let start_script =
-        "cd \"$SOLONCODE_WORKSPACE\" && exec \"$SOLONCODE_BIN\" serve \"$SOLONCODE_PORT\"";
+    let start_script = match mode {
+        LaunchMode::Web => "cd \"$SOLONCODE_WORKSPACE\" && exec \"$SOLONCODE_BIN\" serve \"$SOLONCODE_PORT\"",
+        LaunchMode::Cli => "cd \"$SOLONCODE_WORKSPACE\" && exec \"$SOLONCODE_BIN\" cli",
+    };
 
     #[cfg(target_os = "windows")]
     let mut command = {
         let mut command = soloncode_command(&soloncode_path);
+        match mode {
+            LaunchMode::Web => {
+                command.args(["serve", &port.to_string()]);
+            }
+            LaunchMode::Cli => {
+                command.arg("cli");
+            }
+        }
         command
-            .args(["serve", &port.to_string()])
             .current_dir(&workspace_path)
             .env("PATH", &path_env)
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         command
@@ -919,6 +1088,7 @@ fn start_soloncode(
         .env("SOLONCODE_BIN", &soloncode_path)
         .env("SOLONCODE_PORT", port.to_string())
         .env("PATH", &path_env)
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(unix)]
@@ -940,8 +1110,12 @@ fn start_soloncode(
         &app,
         &workspace_key,
         &name,
-        Some(port),
-        "✅ 进程已启动，等待服务就绪...",
+        (mode == LaunchMode::Web).then_some(port),
+        if mode == LaunchMode::Web {
+            "✅ 进程已启动，等待服务就绪..."
+        } else {
+            "✅ 进程已启动，等待终端就绪..."
+        },
     );
 
     // 转发 stdout 日志
@@ -952,20 +1126,65 @@ fn start_soloncode(
     let app_out = app.clone();
     let stdout_workspace_key = workspace_key.clone();
     let stdout_name = name.clone();
+    let stdout_outputs = state.cli_outputs.clone();
     let (server_port_sender, server_port_receiver) = mpsc::channel::<u16>();
     let stderr_port_sender = server_port_sender.clone();
     std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            if let Some(server_port) = parse_server_port(&line) {
-                let _ = server_port_sender.send(server_port);
+        if mode == LaunchMode::Cli {
+            let mut reader = BufReader::new(stdout);
+            let mut buffer = [0_u8; 4096];
+            let mut pending_utf8 = Vec::new();
+            let mut line_buffer = String::new();
+
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => {
+                        let chunk = String::from_utf8_lossy(&pending_utf8).into_owned();
+                        if !chunk.is_empty() {
+                            append_cli_output(&app_out, &stdout_outputs, &stdout_workspace_key, &chunk);
+                            line_buffer.push_str(&chunk);
+                        }
+                        if !line_buffer.is_empty() {
+                            let remaining = line_buffer.trim_end_matches('\r').to_string();
+                            emit_workspace_log(&app_out, &stdout_workspace_key, &stdout_name, None, remaining);
+                        }
+                        break;
+                    }
+                    Ok(size) => {
+                        let chunk = decode_utf8_chunk(&mut pending_utf8, &buffer[..size]);
+                        if chunk.is_empty() {
+                            continue;
+                        }
+                        if let Some(server_port) = parse_server_port(&chunk) {
+                            let _ = server_port_sender.send(server_port);
+                        }
+                        append_cli_output(&app_out, &stdout_outputs, &stdout_workspace_key, &chunk);
+                        line_buffer.push_str(&chunk);
+                        emit_buffered_workspace_logs(
+                            &app_out,
+                            &stdout_workspace_key,
+                            &stdout_name,
+                            None,
+                            &mut line_buffer,
+                            None,
+                        );
+                    }
+                    Err(_) => break,
+                }
             }
-            emit_workspace_log(
-                &app_out,
-                &stdout_workspace_key,
-                &stdout_name,
-                Some(port),
-                line,
-            );
+        } else {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if let Some(server_port) = parse_server_port(&line) {
+                    let _ = server_port_sender.send(server_port);
+                }
+                emit_workspace_log(
+                    &app_out,
+                    &stdout_workspace_key,
+                    &stdout_name,
+                    Some(port),
+                    line,
+                );
+            }
         }
     });
 
@@ -977,18 +1196,69 @@ fn start_soloncode(
     let app_err = app.clone();
     let stderr_workspace_key = workspace_key.clone();
     let stderr_name = name.clone();
+    let stderr_outputs = state.cli_outputs.clone();
     std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if let Some(server_port) = parse_server_port(&line) {
-                let _ = stderr_port_sender.send(server_port);
+        if mode == LaunchMode::Cli {
+            let mut reader = BufReader::new(stderr);
+            let mut buffer = [0_u8; 4096];
+            let mut pending_utf8 = Vec::new();
+            let mut line_buffer = String::new();
+
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => {
+                        let chunk = String::from_utf8_lossy(&pending_utf8).into_owned();
+                        if !chunk.is_empty() {
+                            append_cli_output(&app_err, &stderr_outputs, &stderr_workspace_key, &chunk);
+                            line_buffer.push_str(&chunk);
+                        }
+                        if !line_buffer.is_empty() {
+                            let remaining = line_buffer.trim_end_matches('\r').to_string();
+                            emit_workspace_log(
+                                &app_err,
+                                &stderr_workspace_key,
+                                &stderr_name,
+                                None,
+                                format!("[stderr] {}", remaining),
+                            );
+                        }
+                        break;
+                    }
+                    Ok(size) => {
+                        let chunk = decode_utf8_chunk(&mut pending_utf8, &buffer[..size]);
+                        if chunk.is_empty() {
+                            continue;
+                        }
+                        if let Some(server_port) = parse_server_port(&chunk) {
+                            let _ = stderr_port_sender.send(server_port);
+                        }
+                        append_cli_output(&app_err, &stderr_outputs, &stderr_workspace_key, &chunk);
+                        line_buffer.push_str(&chunk);
+                        emit_buffered_workspace_logs(
+                            &app_err,
+                            &stderr_workspace_key,
+                            &stderr_name,
+                            None,
+                            &mut line_buffer,
+                            Some("[stderr] "),
+                        );
+                    }
+                    Err(_) => break,
+                }
             }
-            emit_workspace_log(
-                &app_err,
-                &stderr_workspace_key,
-                &stderr_name,
-                Some(port),
-                format!("[stderr] {}", line),
-            );
+        } else {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                if let Some(server_port) = parse_server_port(&line) {
+                    let _ = stderr_port_sender.send(server_port);
+                }
+                emit_workspace_log(
+                    &app_err,
+                    &stderr_workspace_key,
+                    &stderr_name,
+                    Some(port),
+                    format!("[stderr] {}", line),
+                );
+            }
         }
     });
 
@@ -999,7 +1269,7 @@ fn start_soloncode(
             .lock()
             .map_err(|_| "进程状态不可用，请重启 Studio 后重试".to_string())?;
         guard.insert(
-            workspace_key.clone(),
+            process_key.clone(),
             SolonProcess {
                 child,
                 process_group_id,
@@ -1008,20 +1278,45 @@ fn start_soloncode(
                 workspace: workspace_value.clone(),
                 name: name.clone(),
                 ready: false,
+                mode: mode.as_str().to_string(),
             },
         );
+    }
+
+    if mode == LaunchMode::Cli {
+        if let Ok(mut guard) = state.processes.lock() {
+            if let Some(process) = guard.get_mut(&process_key) {
+                process.ready = true;
+            }
+        }
+        let ready_payload = StartResult {
+            project_key: process_key,
+            workspace_key,
+            workspace: workspace_value,
+            name,
+            port,
+            url,
+            already_running: false,
+            mode: mode.as_str().to_string(),
+            command_preview: Some("soloncode cli".to_string()),
+        };
+        let _ = app.emit("soloncode-ready", &ready_payload);
+        return Ok(ready_payload);
     }
 
     // 后台等待端口就绪后通知前端打开项目 tab
     let app_nav = app.clone();
     let failed_workspace_key = workspace_key.clone();
     let ready_payload = StartResult {
+        project_key: process_key.clone(),
         workspace_key: workspace_key.clone(),
         workspace: workspace_value.clone(),
         name: name.clone(),
         port,
         url: url.clone(),
         already_running: false,
+        mode: mode.as_str().to_string(),
+        command_preview: None,
     };
     std::thread::spawn(move || {
         let mut current_port = port;
@@ -1039,7 +1334,7 @@ fn start_soloncode(
                     ready_payload.url = format!("http://localhost:{}/", server_port);
                     let state = app_nav.state::<SolonState>();
                     if let Ok(mut guard) = state.processes.lock() {
-                        if let Some(process) = guard.get_mut(&failed_workspace_key) {
+                        if let Some(process) = guard.get_mut(&project_key(&failed_workspace_key, mode)) {
                             process.port = server_port;
                             process.url = ready_payload.url.clone();
                         }
@@ -1072,7 +1367,7 @@ fn start_soloncode(
                 let state = app_nav.state::<SolonState>();
                 state.processes.lock().ok().and_then(|mut guard| {
                     guard
-                        .get_mut(&failed_workspace_key)
+                        .get_mut(&project_key(&failed_workspace_key, mode))
                         .map(|process| process.child.try_wait().ok().flatten())
                 })
             };
@@ -1115,7 +1410,7 @@ fn start_soloncode(
         if ready {
             let state = app_nav.state::<SolonState>();
             if let Ok(mut guard) = state.processes.lock() {
-                if let Some(process) = guard.get_mut(&failed_workspace_key) {
+                if let Some(process) = guard.get_mut(&project_key(&failed_workspace_key, mode)) {
                     process.ready = true;
                 }
             }
@@ -1142,7 +1437,7 @@ fn start_soloncode(
             );
             let state = app_nav.state::<SolonState>();
             if let Ok(mut guard) = state.processes.lock() {
-                if let Some(process) = guard.remove(&failed_workspace_key) {
+                if let Some(process) = guard.remove(&project_key(&failed_workspace_key, mode)) {
                     kill_child_tree(process.child, process.process_group_id, Some(process.port));
                 }
             }
@@ -1159,12 +1454,15 @@ fn start_soloncode(
     });
 
     Ok(StartResult {
+        project_key: process_key,
         workspace_key,
         workspace: workspace_value,
         name,
         port,
         url,
         already_running: false,
+        mode: mode.as_str().to_string(),
+        command_preview: None,
     })
 }
 
@@ -1174,26 +1472,96 @@ fn stop_soloncode(
     app: tauri::AppHandle,
     state: tauri::State<SolonState>,
     workspace: Option<String>,
+    mode: LaunchMode,
 ) -> Result<String, String> {
     let (workspace_key, _, _, name) = normalize_workspace(workspace)?;
     let mut guard = state
         .processes
         .lock()
         .map_err(|_| "进程状态不可用，请重启 Studio 后重试".to_string())?;
-    if let Some(process) = guard.remove(&workspace_key) {
+    if let Some(process) = guard.remove(&project_key(&workspace_key, mode)) {
         kill_child_tree(process.child, process.process_group_id, Some(process.port));
-        let message = "🛑 停止 SolonCode".to_string();
+        if mode == LaunchMode::Cli {
+            if let Ok(mut outputs) = state.cli_outputs.lock() {
+                outputs.remove(&workspace_key);
+            }
+        }
+        let message = match mode {
+            LaunchMode::Web => "🛑 停止 SolonCode Web".to_string(),
+            LaunchMode::Cli => "🛑 停止 SolonCode CLI".to_string(),
+        };
         emit_workspace_log(
             &app,
             &workspace_key,
             &name,
-            Some(process.port),
+            (mode == LaunchMode::Web).then_some(process.port),
             message.clone(),
         );
         Ok(message)
     } else {
         Err(format!("{} 未在运行", name))
     }
+}
+
+fn append_cli_output(
+    app: &tauri::AppHandle,
+    outputs: &Arc<Mutex<HashMap<String, String>>>,
+    workspace_key: &str,
+    text: &str,
+) {
+    let output = if let Ok(mut outputs) = outputs.lock() {
+        let entry = outputs.entry(workspace_key.to_string()).or_default();
+        entry.push_str(text);
+        if entry.len() > 80_000 {
+            let keep_from = entry.len().saturating_sub(60_000);
+            entry.replace_range(..keep_from, "");
+        }
+        entry.clone()
+    } else {
+        return;
+    };
+    let _ = app.emit(
+        "soloncode-cli-output",
+        CliOutput {
+            workspace_key: workspace_key.to_string(),
+            output,
+        },
+    );
+}
+
+#[tauri::command]
+fn send_cli_input(
+    app: tauri::AppHandle,
+    state: tauri::State<SolonState>,
+    workspace: Option<String>,
+    input: String,
+) -> Result<CliOutput, String> {
+    let (workspace_key, _, _, _) = normalize_workspace(workspace)?;
+    let mut guard = state
+        .processes
+        .lock()
+        .map_err(|_| "进程状态不可用，请重启 Studio 后重试".to_string())?;
+    let Some(process) = guard.get_mut(&project_key(&workspace_key, LaunchMode::Cli)) else {
+        return Err("CLI 会话不存在或已结束".to_string());
+    };
+    let Some(stdin) = process.child.stdin.as_mut() else {
+        return Err("CLI 会话不可写入".to_string());
+    };
+    writeln!(stdin, "{}", input).map_err(|e| format!("发送到 CLI 失败: {}", e))?;
+    let output = if let Ok(mut outputs) = state.cli_outputs.lock() {
+        let entry = outputs.entry(workspace_key.clone()).or_default();
+        entry.push_str(&input);
+        entry.push('\n');
+        entry.clone()
+    } else {
+        format!("> {}\n", input)
+    };
+    let payload = CliOutput {
+        workspace_key: workspace_key.clone(),
+        output,
+    };
+    let _ = app.emit("soloncode-cli-output", &payload);
+    Ok(payload)
 }
 
 /// 导航回启动器首页
@@ -1214,6 +1582,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(SolonState {
             processes: Mutex::new(HashMap::new()),
+            cli_outputs: Arc::new(Mutex::new(HashMap::new())),
         })
         .invoke_handler(tauri::generate_handler![
             check_soloncode,
@@ -1225,10 +1594,13 @@ pub fn run() {
             open_studio_github_home_page,
             open_studio_github_release_page,
             open_studio_website_page,
+            open_external_url,
+            open_soloncode_system_terminal,
             install_soloncode,
             uninstall_soloncode,
             start_soloncode,
             stop_soloncode,
+            send_cli_input,
             go_home,
         ])
         .build(tauri::generate_context!())

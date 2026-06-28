@@ -348,6 +348,81 @@ button {
     background: #ffffff;
 }
 
+.project-terminal {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    background: #07101d;
+    color: #d8e7f6;
+    overflow: hidden;
+}
+
+.terminal-output {
+    display: block;
+    margin: 0;
+    padding: 0 0 35vh;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    line-height: 1.55;
+}
+
+.terminal-output .ansi-bold {
+    font-weight: 800;
+}
+
+.terminal-output .ansi-dim {
+    opacity: 0.68;
+}
+
+.terminal-surface {
+    display: block;
+    position: relative;
+    box-sizing: border-box;
+    min-height: 0;
+    height: 100%;
+    padding: 14px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    cursor: text;
+    outline: none;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    overscroll-behavior: contain;
+}
+
+.terminal-surface:focus {
+    box-shadow: inset 0 0 0 2px rgba(96, 165, 250, 0.42);
+}
+
+.terminal-caret {
+    display: inline-block;
+    width: 8px;
+    height: 1em;
+    margin-left: 1px;
+    vertical-align: -0.12em;
+    background: #d8e7f6;
+    animation: terminal-caret-blink 1s steps(2, start) infinite;
+}
+
+.terminal-hidden-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+@keyframes terminal-caret-blink {
+    50% {
+        opacity: 0;
+    }
+}
+
 body.project-mode .launcher-container {
     background: #ffffff;
 }
@@ -884,9 +959,13 @@ h1 {
     box-shadow: var(--shadow-float);
 }
 
+.run-target-menu {
+    min-width: 260px;
+}
+
 .workspace-menu-item {
     display: grid;
-    grid-template-columns: 16px minmax(0, 1fr);
+    grid-template-columns: 16px max-content;
     align-items: center;
     gap: 10px;
     min-height: 34px;
@@ -899,10 +978,20 @@ h1 {
     font-size: 0.86rem;
     font-weight: 750;
     text-align: left;
+    white-space: nowrap;
+}
+
+.run-target-menu-item {
+    display: block;
 }
 
 .workspace-menu-item:hover {
     background: #f3f7fb;
+}
+
+.workspace-menu-item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .workspace-menu-icon {
@@ -928,6 +1017,40 @@ h1 {
     border: 1px solid rgba(219, 228, 239, 0.92);
     border-radius: var(--radius-md);
     background: #f7f9fc;
+}
+
+.workspace-status-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: 0;
+}
+
+.mode-switch {
+    display: inline-flex;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: #ffffff;
+}
+
+.mode-switch-btn {
+    min-width: 74px;
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-weight: 760;
+}
+
+.mode-switch-btn.active {
+    background: var(--accent);
+    color: #ffffff;
 }
 
 .workspace-status-bar h2 {
@@ -1256,6 +1379,18 @@ h1 {
 
     .workspace-status-bar {
         grid-template-columns: 1fr;
+    }
+
+    .workspace-status-actions {
+        justify-content: space-between;
+    }
+
+    .mode-switch {
+        width: 100%;
+    }
+
+    .mode-switch-btn {
+        flex: 1;
     }
 
     .log-area {
