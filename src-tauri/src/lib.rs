@@ -611,7 +611,7 @@ fn reveal_workspace(workspace: Option<String>) -> Result<(), String> {
 /// 打开 Desktop 下载页面
 #[tauri::command]
 fn open_desktop_download_page() -> Result<(), String> {
-    open_url("https://github.com/visduo/soloncode-desktop-community")
+    open_url("https://github.com/visduo/soloncode-studio/releases")
 }
 
 fn open_url(url: &str) -> Result<(), String> {

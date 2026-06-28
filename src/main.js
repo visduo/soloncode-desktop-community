@@ -1,4 +1,4 @@
-// SolonCode Desktop - 主控逻辑
+// SolonCode Studio - 主控逻辑
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
@@ -313,7 +313,7 @@ function showUpdatePrompts(info) {
         queueUpdatePrompt({
             key: `desktop-update-${desktopLatest}`,
             title: "Desktop 可更新",
-            message: `SolonCode Desktop Community ${desktopLatest} 已发布，请从 GitHub 下载最新安装包。`,
+            message: `SolonCode Studio ${desktopLatest} 已发布，请从 GitHub 下载最新安装包。`,
             actions: [
                 { label: "稍后", primary: false, handler: closeUpdateDialog },
                 {
