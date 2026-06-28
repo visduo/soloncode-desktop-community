@@ -433,6 +433,23 @@ h1 {
     color: var(--accent-strong);
 }
 
+.tool-update:not(:disabled) {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #ffffff;
+}
+
+.tool-update:hover:not(:disabled) {
+    border-color: var(--accent-strong);
+    background: var(--accent-strong);
+    color: #ffffff;
+}
+
+.tool-update:not(:disabled) .tool-icon {
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+}
+
 .tool-uninstall:not(:disabled) .tool-icon {
     background: #fee2e2;
     color: var(--red);

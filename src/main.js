@@ -173,7 +173,6 @@ function setBusy(busy) {
 
 function refreshButtons() {
     const btnInstall = document.getElementById("btn-install");
-    const btnUpdate = document.getElementById("btn-update");
     const btnRun = document.getElementById("btn-run");
     const btnStop = document.getElementById("btn-stop");
     const btnUninstall = document.getElementById("btn-uninstall");
@@ -181,22 +180,28 @@ function refreshButtons() {
     const activeStarting = isWorkspaceStarting(selectedWorkspace);
     const hasRunningProjects = runningProjects.size > 0;
 
-    btnInstall.disabled = isBusy || isInstalled || !isJavaAvailable;
-    btnUpdate.disabled = isBusy || !isInstalled || !isJavaAvailable || !cliUpdateAvailable || hasRunningProjects;
+    const canInstallCli = !isInstalled && isJavaAvailable;
+    const canUpdateCli = isInstalled && isJavaAvailable && cliUpdateAvailable && !hasRunningProjects;
+    const installIcon = isInstalled ? "refresh" : "download";
+    btnInstall.disabled = isBusy || !(canInstallCli || canUpdateCli);
+    btnInstall.classList.toggle("tool-update", isInstalled);
+    btnInstall.classList.toggle("tool-install", !isInstalled);
+    btnInstall.querySelector("span:last-child").textContent = isInstalled ? "更新 CLI" : "安装 CLI";
+    setIcon(btnInstall.querySelector(".tool-icon"), installIcon);
     btnRun.disabled = isBusy || !isInstalled || !isJavaAvailable || Boolean(activeProject) || activeStarting;
     btnStop.disabled = isBusy || (!activeProject && !activeStarting);
     btnUninstall.disabled = isBusy || !isInstalled || !isJavaAvailable || hasRunningProjects;
 
     if (activeProject) {
-        btnRun.querySelector(".btn-text").textContent = "运行中...";
+        btnRun.querySelector(".btn-text").textContent = "运行中";
         setIcon(btnRun.querySelector(".btn-icon"), "loader");
-        btnRun.querySelector(".btn-desc").textContent = `端口 ${activeProject.port}`;
+        btnRun.querySelector(".btn-desc").textContent = "已运行";
     } else if (activeStarting) {
         btnRun.querySelector(".btn-text").textContent = "启动中...";
         setIcon(btnRun.querySelector(".btn-icon"), "loader");
         btnRun.querySelector(".btn-desc").textContent = "等待 Web 服务就绪";
     } else {
-        btnRun.querySelector(".btn-text").textContent = "运行 SolonCode";
+        btnRun.querySelector(".btn-text").textContent = "运行";
         setIcon(btnRun.querySelector(".btn-icon"), "play");
         btnRun.querySelector(".btn-desc").textContent = "在当前工作区启动 Web 界面";
     }
@@ -464,7 +469,7 @@ function updateActiveWorkspace() {
     name.textContent = getWorkspaceName(selectedWorkspace);
     path.textContent = selectedWorkspace || homeWorkspacePath || "用户目录";
     if (port) {
-        port.textContent = activeProject ? `运行端口：${activeProject.port}` : "尚未启动";
+        port.textContent = activeProject ? "已运行" : "尚未启动";
     }
 }
 
@@ -750,6 +755,14 @@ async function handleInstall() {
     }
 }
 
+async function handleCliPrimaryAction() {
+    if (isInstalled) {
+        await handleUpdate();
+        return;
+    }
+    await handleInstall();
+}
+
 async function handleUpdate() {
     if (isBusy || !isInstalled || !cliUpdateAvailable || runningProjects.size > 0) return;
     setSelectedWorkspace(null);
@@ -893,6 +906,7 @@ async function handleUninstall() {
 
 // 暴露给 onclick
 window.handleInstall = handleInstall;
+window.handleCliPrimaryAction = handleCliPrimaryAction;
 window.handleUpdate = handleUpdate;
 window.handleRun = handleRun;
 window.handleStop = handleStop;
