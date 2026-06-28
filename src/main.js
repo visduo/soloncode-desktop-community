@@ -797,7 +797,10 @@ function updateProjectView(element, project) {
             renderAnsiTerminalOutput(output, project.terminal_output || "", project.terminal_input || "");
         }
         const surface = element.querySelector(".terminal-surface");
-        if (surface) scrollTerminalToBottom(surface);
+        if (surface) {
+            syncTerminalInputPosition(surface);
+            scrollTerminalToBottom(surface);
+        }
         const input = element.querySelector(".terminal-hidden-input");
         if (input && input.value !== "") input.value = "";
         if (document.activeElement !== input) input?.focus();
@@ -811,8 +814,20 @@ function scrollTerminalToBottom(surface) {
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
             surface.scrollTop = surface.scrollHeight;
+            syncTerminalInputPosition(surface);
         });
     });
+}
+
+function syncTerminalInputPosition(surface) {
+    const caret = surface.querySelector(".terminal-caret");
+    const input = surface.querySelector(".terminal-hidden-input");
+    if (!caret || !input) return;
+
+    const caretRect = caret.getBoundingClientRect();
+    const surfaceRect = surface.getBoundingClientRect();
+    input.style.left = `${caretRect.left - surfaceRect.left + surface.scrollLeft}px`;
+    input.style.top = `${caretRect.top - surfaceRect.top + surface.scrollTop}px`;
 }
 
 async function closeProjectTab(key) {

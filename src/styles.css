@@ -410,10 +410,15 @@ button {
 .terminal-hidden-input {
     position: absolute;
     width: 1px;
-    height: 1px;
+    height: 1.55em;
     padding: 0;
     border: 0;
+    outline: 0;
     opacity: 0;
+    color: transparent;
+    background: transparent;
+    caret-color: transparent;
+    font: inherit;
     pointer-events: none;
 }
 

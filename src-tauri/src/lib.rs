@@ -33,10 +33,7 @@ struct SolonProcess {
     process_group_id: u32,
     port: u16,
     url: String,
-    workspace: Option<String>,
-    name: String,
     ready: bool,
-    mode: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -981,7 +978,7 @@ fn start_soloncode(
     let (workspace_key, workspace_value, workspace_path, name) = normalize_workspace(workspace)?;
     let process_key = project_key(&workspace_key, mode);
 
-    // 检查该工作区是否已在运行（清理已死的旧进程）
+    // 检查该工作区是否已有旧进程；活着也直接清理，后续重新启动。
     {
         let mut guard = state
             .processes
@@ -993,22 +990,17 @@ fn start_soloncode(
                     guard.remove(&process_key);
                 }
                 Ok(None) => {
-                    if !process.ready {
-                        return Err(format!("{} 正在启动，请稍后", process.name));
+                    if let Some(old_process) = guard.remove(&process_key) {
+                        kill_child_tree(old_process.child, old_process.process_group_id, Some(old_process.port));
                     }
-                    return Ok(StartResult {
-                        project_key: process_key.clone(),
-                        workspace_key,
-                        workspace: process.workspace.clone(),
-                        name: process.name.clone(),
-                        port: process.port,
-                        url: process.url.clone(),
-                        already_running: true,
-                        mode: process.mode.clone(),
-                        command_preview: (mode == LaunchMode::Cli).then_some("soloncode cli".to_string()),
-                    });
                 }
             }
+        }
+    }
+
+    if mode == LaunchMode::Cli {
+        if let Ok(mut outputs) = state.cli_outputs.lock() {
+            outputs.remove(&workspace_key);
         }
     }
 
@@ -1289,10 +1281,7 @@ fn start_soloncode(
                 process_group_id,
                 port,
                 url: url.clone(),
-                workspace: workspace_value.clone(),
-                name: name.clone(),
                 ready: false,
-                mode: mode.as_str().to_string(),
             },
         );
     }
