@@ -18,8 +18,11 @@ const projectFrames = new Map();
 const startingWorkspaceKeys = new Set();
 const workspaceLogs = new Map();
 const queuedPromptKeys = new Set();
+let editingWorkspacePath = null;
+let openWorkspaceMenuKey = null;
 
 const WORKSPACES_KEY = "soloncode.workspaces";
+const WORKSPACE_ALIASES_KEY = "soloncode.workspaceAliases";
 const HOME_TAB_KEY = "home";
 const HOME_WORKSPACE_KEY = "__home__";
 const HIDDEN_STUDIO_UPDATE_KEY = "soloncode.hiddenStudioUpdate";
@@ -28,19 +31,24 @@ const MAX_LOG_LINES = 500;
 // ─── 工具函数 ────────────────────────────────────────────
 
 const ICON_PATHS = {
-    download: '<path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" />',
+    download:
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download-icon lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>',
     refresh:
-        '<path d="M21 12a9 9 0 0 1-15.4 6.4L3 16" /><path d="M3 21v-5h5" /><path d="M3 12A9 9 0 0 1 18.4 5.6L21 8" /><path d="M21 3v5h-5" />',
-    x: '<path d="M18 6 6 18" /><path d="m6 6 12 12" />',
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw-icon lucide-rotate-ccw"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
+    x: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
     github: '<path d="M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.71.5.09.68-.22.68-.49 0-.24-.01-.88-.01-1.73-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.63.07-.63 1 .07 1.53 1.05 1.53 1.05.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.37-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.32 9.32 0 0 1 12 6.94c.85 0 1.71.12 2.51.34 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.8-4.57 5.05.36.32.68.94.68 1.9 0 1.37-.01 2.48-.01 2.82 0 .27.18.59.69.49A10.09 10.09 0 0 0 22 12.23C22 6.58 17.52 2 12 2z" />',
     "folder-plus":
-        '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z" /><path d="M12 11v5" /><path d="M9.5 13.5h5" />',
-    play: '<path d="M8 5v14l11-7z" />',
-    square: '<rect x="7" y="7" width="10" height="10" rx="1" />',
-    loader: '<path d="M12 2v4" /><path d="m16.2 7.8 2.9-2.9" /><path d="M18 12h4" /><path d="m16.2 16.2 2.9 2.9" /><path d="M12 18v4" /><path d="m4.9 19.1 2.9-2.9" /><path d="M2 12h4" /><path d="m4.9 4.9 2.9 2.9" />',
-    "external-link": '<path d="M7 17 17 7" /><path d="M9 7h8v8" />',
-    minus: '<path d="M6 12h12" />',
-    folder: '<path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5z" />'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-plus-icon lucide-folder-plus"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
+    play: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play-icon lucide-play"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg>',
+    square: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-icon lucide-square"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>',
+    loader: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-loader-icon lucide-loader"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>',
+    "edit-3":
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-pen-icon lucide-square-pen"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg>',
+    "external-link":
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-arrow-out-up-right-icon lucide-square-arrow-out-up-right"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>',
+    more: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis-icon lucide-ellipsis"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>',
+    minus: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2-icon lucide-trash-2"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+    folder: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-open-icon lucide-folder-open"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>'
 };
 
 function iconSvg(name) {
@@ -167,8 +175,20 @@ function formatError(message) {
 
 function setBusy(busy) {
     isBusy = busy;
+    if (busy) openWorkspaceMenuKey = null;
     renderWorkspaces();
     refreshButtons();
+}
+
+function toggleWorkspaceMenu(workspaceKey) {
+    openWorkspaceMenuKey = openWorkspaceMenuKey === workspaceKey ? null : workspaceKey;
+    renderWorkspaces();
+}
+
+function closeWorkspaceMenu() {
+    if (openWorkspaceMenuKey === null) return;
+    openWorkspaceMenuKey = null;
+    renderWorkspaces();
 }
 
 function refreshButtons() {
@@ -188,14 +208,14 @@ function refreshButtons() {
     btnInstall.classList.toggle("tool-install", !isInstalled);
     btnInstall.querySelector("span:last-child").textContent = isInstalled ? "更新 CLI" : "安装 CLI";
     setIcon(btnInstall.querySelector(".tool-icon"), installIcon);
-    btnRun.disabled = isBusy || !isInstalled || !isJavaAvailable || Boolean(activeProject) || activeStarting;
+    btnRun.disabled = isBusy || !isInstalled || !isJavaAvailable || activeStarting;
     btnStop.disabled = isBusy || (!activeProject && !activeStarting);
     btnUninstall.disabled = isBusy || !isInstalled || !isJavaAvailable || hasRunningProjects;
 
     if (activeProject) {
-        btnRun.querySelector(".btn-text").textContent = "正在运行";
-        setIcon(btnRun.querySelector(".btn-icon"), "loader");
-        btnRun.querySelector(".btn-desc").textContent = "正在运行";
+        btnRun.querySelector(".btn-text").textContent = "打开服务";
+        setIcon(btnRun.querySelector(".btn-icon"), "external-link");
+        btnRun.querySelector(".btn-desc").textContent = "打开当前运行中的服务";
     } else if (activeStarting) {
         btnRun.querySelector(".btn-text").textContent = "正在启动";
         setIcon(btnRun.querySelector(".btn-icon"), "loader");
@@ -439,6 +459,65 @@ function getWorkspaceName(path) {
     return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
+function loadWorkspaceAliases() {
+    try {
+        const raw = localStorage.getItem(WORKSPACE_ALIASES_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function saveWorkspaceAliases(aliases) {
+    localStorage.setItem(WORKSPACE_ALIASES_KEY, JSON.stringify(aliases));
+}
+
+function getWorkspaceDisplayName(path, fallbackName) {
+    if (!path) return fallbackName || "用户目录";
+    const alias = loadWorkspaceAliases()[path];
+    if (typeof alias === "string" && alias.trim()) return alias.trim();
+    return fallbackName || getWorkspaceName(path);
+}
+
+function renameWorkspace(path) {
+    if (!path) return;
+    editingWorkspacePath = path;
+    const dialog = document.getElementById("workspace-alias-dialog");
+    const input = document.getElementById("workspace-alias-input");
+    if (!dialog || !input) return;
+
+    input.value = getWorkspaceDisplayName(path);
+    dialog.hidden = false;
+    input.focus();
+    input.select();
+}
+
+function closeWorkspaceAliasDialog() {
+    editingWorkspacePath = null;
+    const dialog = document.getElementById("workspace-alias-dialog");
+    const input = document.getElementById("workspace-alias-input");
+    if (input) input.value = "";
+    if (dialog) dialog.hidden = true;
+}
+
+function saveWorkspaceAlias() {
+    if (!editingWorkspacePath) return;
+    const input = document.getElementById("workspace-alias-input");
+    if (!input) return;
+
+    const alias = input.value.trim();
+    const aliases = loadWorkspaceAliases();
+    if (alias) aliases[editingWorkspacePath] = alias;
+    else delete aliases[editingWorkspacePath];
+    saveWorkspaceAliases(aliases);
+
+    closeWorkspaceAliasDialog();
+    renderTabs();
+    renderWorkspaces();
+}
+
 function loadWorkspaces() {
     try {
         const raw = localStorage.getItem(WORKSPACES_KEY);
@@ -466,7 +545,7 @@ function updateActiveWorkspace() {
     const port = document.getElementById("active-workspace-port");
     if (!name || !path) return;
     const activeProject = getActiveProject();
-    name.textContent = getWorkspaceName(selectedWorkspace);
+    name.textContent = getWorkspaceDisplayName(selectedWorkspace);
     path.textContent = selectedWorkspace || homeWorkspacePath || "用户目录";
     if (port) {
         port.textContent = activeProject ? "已运行" : "尚未启动";
@@ -474,6 +553,7 @@ function updateActiveWorkspace() {
 }
 
 function upsertProject(project) {
+    project.name = getWorkspaceDisplayName(project.workspace, project.name);
     runningProjects.set(project.workspace_key, project);
     renderTabs();
     renderWorkspaces();
@@ -573,7 +653,7 @@ function renderTabs() {
         const tab = document.createElement("button");
         tab.className = "tab-item" + (activeTabKey === project.workspace_key ? " active" : "");
         tab.type = "button";
-        tab.innerHTML = `<span class="tab-dot running"></span><span class="tab-label"></span><span class="tab-close" title="关闭当前工作区">${iconSvg("x")}</span>`;
+        tab.innerHTML = `<span class="tab-dot running"></span><span class="tab-label"></span><span class="tab-close">${iconSvg("x")}</span>`;
         tab.querySelector(".tab-label").textContent = project.name;
         tab.addEventListener("click", () => activateProjectTab(project.workspace_key));
         tab.querySelector(".tab-close").addEventListener("click", (event) => {
@@ -595,6 +675,11 @@ function rememberWorkspace(path) {
 function removeWorkspace(path) {
     if (!path) return;
     saveWorkspaces(loadWorkspaces().filter((item) => item !== path));
+    const aliases = loadWorkspaceAliases();
+    if (path in aliases) {
+        delete aliases[path];
+        saveWorkspaceAliases(aliases);
+    }
     if (selectedWorkspace === path) setSelectedWorkspace(null);
     else renderWorkspaces();
 }
@@ -618,18 +703,56 @@ async function openGitHubPage() {
 function getWorkspaceIcon(name) {
     const iconNames = {
         play: "play",
+        stop: "square",
+        edit: "edit-3",
         open: "external-link",
+        more: "more",
         remove: "minus",
         folder: "folder"
     };
     return iconSvg(iconNames[name] || "play");
 }
 
+function createWorkspaceMenuItem(icon, label, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "workspace-menu-item";
+    button.innerHTML = `<span class="workspace-menu-icon">${getWorkspaceIcon(icon)}</span><span>${label}</span>`;
+    button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        onClick();
+        closeWorkspaceMenu();
+    });
+    return button;
+}
+
+function createWorkspaceMenu(path, removable) {
+    const workspaceKey = getWorkspaceKey(path);
+    const menuWrap = document.createElement("div");
+    menuWrap.className = "workspace-menu-wrap";
+
+    const trigger = createWorkspaceButton("more", "更多操作", "more", () => toggleWorkspaceMenu(workspaceKey));
+    trigger.setAttribute("aria-expanded", openWorkspaceMenuKey === workspaceKey ? "true" : "false");
+    menuWrap.appendChild(trigger);
+
+    if (openWorkspaceMenuKey === workspaceKey) {
+        const menu = document.createElement("div");
+        menu.className = "workspace-menu";
+        if (removable) {
+            menu.appendChild(createWorkspaceMenuItem("edit", "重命名", () => renameWorkspace(path)));
+            menu.appendChild(createWorkspaceMenuItem("remove", "移除工作区", () => removeWorkspace(path)));
+        }
+        menu.appendChild(createWorkspaceMenuItem("folder", "打开文件夹", () => openWorkspaceInExplorer(path)));
+        menuWrap.appendChild(menu);
+    }
+
+    return menuWrap;
+}
+
 function createWorkspaceButton(icon, title, className, onClick, options = {}) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `workspace-icon-btn ${className} icon-${icon}`;
-    button.title = title;
     button.setAttribute("aria-label", title);
     if (options.disabled) {
         button.disabled = true;
@@ -668,7 +791,7 @@ function createWorkspaceItem({ path, name, detail, active, running, removable })
     actions.appendChild(
         createWorkspaceButton(
             running ? "open" : "play",
-            running ? "打开运行中的项目" : workspaceStarting ? "启动中" : "启动工作区",
+            running ? "打开服务" : workspaceStarting ? "启动中" : "启动工作区",
             "run",
             () => {
                 setSelectedWorkspace(path);
@@ -681,12 +804,10 @@ function createWorkspaceItem({ path, name, detail, active, running, removable })
             }
         )
     );
-    if (removable) {
-        actions.appendChild(createWorkspaceButton("remove", "移除记录", "remove", () => removeWorkspace(path)));
+    if (running) {
+        actions.appendChild(createWorkspaceButton("stop", "停止服务", "stop", () => stopWorkspace(path)));
     }
-    actions.appendChild(
-        createWorkspaceButton("folder", "在 Explorer 中打开", "reveal", () => openWorkspaceInExplorer(path))
-    );
+    actions.appendChild(createWorkspaceMenu(path, removable));
     item.appendChild(actions);
 
     return item;
@@ -707,9 +828,7 @@ function renderWorkspaces() {
         createWorkspaceItem({
             path: null,
             name: "用户目录",
-            detail: homeProject
-                ? `${homeWorkspacePath || "用户目录"} · 端口 ${homeProject.port}`
-                : homeWorkspacePath || "用户目录",
+            detail: homeWorkspacePath || "用户目录",
             active: !selectedWorkspace,
             running: Boolean(homeProject),
             removable: false
@@ -721,8 +840,8 @@ function renderWorkspaces() {
         list.appendChild(
             createWorkspaceItem({
                 path: workspace,
-                name: getWorkspaceName(workspace),
-                detail: project ? `${workspace} · 端口 ${project.port}` : workspace,
+                name: getWorkspaceDisplayName(workspace),
+                detail: workspace,
                 active: workspace === selectedWorkspace,
                 running: Boolean(project),
                 removable: true
@@ -761,6 +880,15 @@ async function handleCliPrimaryAction() {
         return;
     }
     await handleInstall();
+}
+
+function handleRunButtonClick() {
+    const activeProject = getActiveProject();
+    if (activeProject) {
+        activateProjectTab(activeProject.workspace_key);
+        return;
+    }
+    handleRun();
 }
 
 async function handleUpdate() {
@@ -808,8 +936,9 @@ async function handleRun(workspace = selectedWorkspace) {
     setBusy(true);
     setStatus("正在启动...", "detecting");
     const workspaceName = getWorkspaceName(targetWorkspace);
+    const workspaceDisplayName = getWorkspaceDisplayName(targetWorkspace, workspaceName);
     try {
-        appendLog("📁 本次启动工作区: " + (targetWorkspace || "用户目录"), workspaceKey, workspaceName);
+        appendLog("📁 本次启动工作区: " + (targetWorkspace || "用户目录"), workspaceKey, workspaceDisplayName);
         const project = await invoke("start_soloncode", { workspace: targetWorkspace });
         if (project.already_running) {
             startingWorkspaceKeys.delete(project.workspace_key);
@@ -821,16 +950,16 @@ async function handleRun(workspace = selectedWorkspace) {
         }
         appendLog(
             project.already_running
-                ? `已在运行: ${project.name} (${project.url})`
-                : `SolonCode 启动中: ${project.name} (${project.url})`,
+                ? `已在运行: ${workspaceDisplayName} (${project.url})`
+                : `SolonCode 启动中: ${workspaceDisplayName} (${project.url})`,
             project.workspace_key,
-            project.name,
+            workspaceDisplayName,
             project.port
         );
         setStatus("Web 服务启动中...", "running");
     } catch (e) {
         startingWorkspaceKeys.delete(workspaceKey);
-        appendLog(formatError(e), workspaceKey, workspaceName);
+        appendLog(formatError(e), workspaceKey, workspaceDisplayName);
         setStatus("启动失败", "installed");
     } finally {
         setBusy(false);
@@ -882,6 +1011,34 @@ async function handleStop() {
     }
 }
 
+async function stopWorkspace(path) {
+    const workspaceKey = getWorkspaceKey(path);
+    const project = runningProjects.get(workspaceKey);
+    const workspaceStarting = startingWorkspaceKeys.has(workspaceKey);
+    if (isBusy || (!project && !workspaceStarting)) return;
+    setBusy(true);
+    try {
+        await invoke("stop_soloncode", { workspace: path });
+        runningProjects.delete(workspaceKey);
+        startingWorkspaceKeys.delete(workspaceKey);
+        removeProjectFrame(workspaceKey);
+        if (activeTabKey === workspaceKey) {
+            activateHomeTab();
+        } else {
+            renderTabs();
+        }
+        renderWorkspaces();
+        setStatus(
+            runningProjects.size > 0 ? "部分工作区运行中" : "已停止",
+            runningProjects.size > 0 ? "running" : "installed"
+        );
+    } catch (e) {
+        appendLog(formatError(e), workspaceKey, project?.name || getWorkspaceName(path), project?.port || null);
+    } finally {
+        setBusy(false);
+    }
+}
+
 async function handleUninstall() {
     if (isBusy) return;
     setSelectedWorkspace(null);
@@ -909,6 +1066,7 @@ window.handleInstall = handleInstall;
 window.handleCliPrimaryAction = handleCliPrimaryAction;
 window.handleUpdate = handleUpdate;
 window.handleRun = handleRun;
+window.handleRunButtonClick = handleRunButtonClick;
 window.handleStop = handleStop;
 window.handleUninstall = handleUninstall;
 window.handleOpenWorkspace = handleOpenWorkspace;
@@ -933,6 +1091,7 @@ listen("soloncode-port", (e) => {
 
 listen("soloncode-ready", (e) => {
     const project = e.payload;
+    project.name = getWorkspaceDisplayName(project.workspace, project.name);
     startingWorkspaceKeys.delete(project.workspace_key);
     upsertProject(project);
     appendLog(`✅ 服务就绪: ${project.name} -> ${project.url}`, project.workspace_key, project.name, project.port);
@@ -967,6 +1126,23 @@ async function init() {
     renderWorkspaces();
     document.getElementById("app-actions").style.display = "flex";
     document.getElementById("button-group").style.display = "grid";
+    document.getElementById("workspace-alias-cancel")?.addEventListener("click", closeWorkspaceAliasDialog);
+    document.getElementById("workspace-alias-confirm")?.addEventListener("click", saveWorkspaceAlias);
+    document.getElementById("workspace-alias-input")?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            saveWorkspaceAlias();
+        }
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeWorkspaceAliasDialog();
+        }
+    });
+    document.addEventListener("click", (event) => {
+        if (!event.target.closest(".workspace-menu-wrap")) {
+            closeWorkspaceMenu();
+        }
+    });
     refreshButtons();
     refreshHomeWorkspacePath();
     await refreshInstallStatus();

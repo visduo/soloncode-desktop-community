@@ -57,7 +57,6 @@
                             <button
                                 class="workspace-add"
                                 type="button"
-                                title="打开工作区"
                                 aria-label="打开工作区"
                                 onclick="handleOpenWorkspace()"
                             >
@@ -76,7 +75,7 @@
                                 <p class="active-port" id="active-workspace-port">尚未启动</p>
                             </div>
                             <div class="button-group" id="button-group" style="display: none">
-                                <button class="btn btn-run" id="btn-run" onclick="handleRun()" disabled>
+                                <button class="btn btn-run" id="btn-run" onclick="handleRunButtonClick()" disabled>
                                     <span class="btn-icon" data-icon="play" aria-hidden="true"></span>
                                     <span
                                         ><span class="btn-text">启动服务</span
@@ -120,6 +119,30 @@
                         <p id="update-dialog-message"></p>
                     </div>
                     <div class="update-dialog-actions" id="update-dialog-actions"></div>
+                </section>
+            </div>
+
+            <div class="update-dialog-backdrop" id="workspace-alias-dialog" hidden>
+                <section class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-alias-title">
+                    <div>
+                        <h2 id="workspace-alias-title">修改工作区名称</h2>
+                        <p id="workspace-alias-message">可以填写一个更容易识别的名称或备注。</p>
+                    </div>
+                    <div class="workspace-alias-form">
+                        <input
+                            class="workspace-alias-input"
+                            id="workspace-alias-input"
+                            type="text"
+                            maxlength="60"
+                            placeholder="请输入工作区名称或备注"
+                        />
+                    </div>
+                    <div class="update-dialog-actions">
+                        <button class="update-dialog-btn" type="button" id="workspace-alias-cancel">取消</button>
+                        <button class="update-dialog-btn primary" type="button" id="workspace-alias-confirm">
+                            保存
+                        </button>
+                    </div>
                 </section>
             </div>
         </div>
