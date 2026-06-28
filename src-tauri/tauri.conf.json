@@ -10,7 +10,7 @@
         "withGlobalTauri": true,
         "windows": [
             {
-                "title": "SolonCode Desktop Community",
+                "title": "SolonCode 工作台",
                 "width": 1280,
                 "height": 860,
                 "minWidth": 1000,

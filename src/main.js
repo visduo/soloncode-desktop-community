@@ -568,9 +568,8 @@ function renderTabs() {
         const tab = document.createElement("button");
         tab.className = "tab-item" + (activeTabKey === project.workspace_key ? " active" : "");
         tab.type = "button";
-        tab.innerHTML = `<span class="tab-dot running"></span><span class="tab-label"></span><span class="tab-port"></span><span class="tab-close" title="关闭当前工作区">${iconSvg("x")}</span>`;
+        tab.innerHTML = `<span class="tab-dot running"></span><span class="tab-label"></span><span class="tab-close" title="关闭当前工作区">${iconSvg("x")}</span>`;
         tab.querySelector(".tab-label").textContent = project.name;
-        tab.querySelector(".tab-port").textContent = String(project.port);
         tab.addEventListener("click", () => activateProjectTab(project.workspace_key));
         tab.querySelector(".tab-close").addEventListener("click", (event) => {
             event.stopPropagation();
