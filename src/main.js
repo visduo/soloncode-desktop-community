@@ -22,7 +22,7 @@ const queuedPromptKeys = new Set();
 const WORKSPACES_KEY = "soloncode.workspaces";
 const HOME_TAB_KEY = "home";
 const HOME_WORKSPACE_KEY = "__home__";
-const HIDDEN_DESKTOP_UPDATE_KEY = "soloncode.hiddenDesktopUpdate";
+const HIDDEN_STUDIO_UPDATE_KEY = "soloncode.hiddenStudioUpdate";
 const MAX_LOG_LINES = 500;
 
 // ─── 工具函数 ────────────────────────────────────────────
@@ -225,8 +225,8 @@ function normalizeVersionText(version) {
 
 function updateVersionFooter(info) {
     const cliVersion = document.getElementById("cli-version");
-    const desktopVersion = document.getElementById("desktop-version");
-    if (!cliVersion || !desktopVersion) return;
+    const studioVersion = document.getElementById("studio-version");
+    if (!cliVersion || !studioVersion) return;
 
     cliUpdateAvailable = Boolean(info.cli_update_available);
     cliVersion.textContent = `CLI：${formatVersion(
@@ -235,14 +235,14 @@ function updateVersionFooter(info) {
         info.cli_update_available,
         Boolean(info.installed)
     )}`;
-    desktopVersion.textContent = `Desktop：${formatVersion(
-        info.desktop_current,
-        info.desktop_latest,
-        info.desktop_update_available,
+    studioVersion.textContent = `Studio：${formatVersion(
+        info.studio_current,
+        info.studio_latest,
+        info.studio_update_available,
         true
     )}`;
     cliVersion.classList.toggle("version-update", Boolean(info.cli_update_available));
-    desktopVersion.classList.toggle("version-update", Boolean(info.desktop_update_available));
+    studioVersion.classList.toggle("version-update", Boolean(info.studio_update_available));
 }
 
 function closeUpdateDialog() {
@@ -313,19 +313,19 @@ function showUpdatePrompts(info) {
         });
     }
 
-    const desktopLatest = normalizeVersionText(info.desktop_latest);
-    if (info.desktop_update_available && localStorage.getItem(HIDDEN_DESKTOP_UPDATE_KEY) !== desktopLatest) {
+    const studioLatest = normalizeVersionText(info.studio_latest);
+    if (info.studio_update_available && localStorage.getItem(HIDDEN_STUDIO_UPDATE_KEY) !== studioLatest) {
         queueUpdatePrompt({
-            key: `desktop-update-${desktopLatest}`,
-            title: "Desktop 可更新",
-            message: `SolonCode Studio ${desktopLatest} 已发布，请从 GitHub 下载最新安装包。`,
+            key: `studio-update-${studioLatest}`,
+            title: "Studio 可更新",
+            message: `SolonCode Studio ${studioLatest} 已发布，请从 GitHub 下载最新安装包。`,
             actions: [
                 { label: "稍后", primary: false, handler: closeUpdateDialog },
                 {
                     label: "不再提醒",
                     primary: false,
                     handler: () => {
-                        localStorage.setItem(HIDDEN_DESKTOP_UPDATE_KEY, desktopLatest);
+                        localStorage.setItem(HIDDEN_STUDIO_UPDATE_KEY, studioLatest);
                         closeUpdateDialog();
                     }
                 },
@@ -609,7 +609,7 @@ async function openWorkspaceInExplorer(path) {
 
 async function openGitHubPage() {
     try {
-        await invoke("open_desktop_download_page");
+        await invoke("open_studio_download_page");
     } catch (e) {
         appendLog(formatError("打开 GitHub 失败: " + e));
     }

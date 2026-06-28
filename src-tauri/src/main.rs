@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    soloncode_desktop_dev_lib::run()
+    soloncode_studio_dev_lib::run()
 }

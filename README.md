@@ -18,7 +18,7 @@ SolonCode Studio 是一个基于 Tauri 2 构建的轻量桌面工作台，用于
 
 🌐 启动后自动在应用内打开 Web 界面
 
-🔔 自动检测 CLI 和 Desktop 版本更新
+🔔 自动检测 CLI 和 Studio 版本更新
 
 🖥️ 支持 macOS、Windows 和 Linux
 

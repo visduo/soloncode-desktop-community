@@ -63,7 +63,7 @@ struct FailedResult {
 #[derive(Deserialize)]
 struct RemoteVersionInfo {
     cli: Option<String>,
-    desktop: Option<String>,
+    studio: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -72,9 +72,9 @@ struct VersionStatus {
     cli_current: Option<String>,
     cli_latest: Option<String>,
     cli_update_available: bool,
-    desktop_current: String,
-    desktop_latest: Option<String>,
-    desktop_update_available: bool,
+    studio_current: String,
+    studio_latest: Option<String>,
+    studio_update_available: bool,
     error: Option<String>,
 }
 
@@ -84,8 +84,7 @@ fn parse_server_port(line: &str) -> Option<u16> {
 }
 
 fn is_local_port_ready(port: u16) -> bool {
-    TcpStream::connect(("127.0.0.1", port)).is_ok()
-        || TcpStream::connect(("::1", port)).is_ok()
+    TcpStream::connect(("127.0.0.1", port)).is_ok() || TcpStream::connect(("::1", port)).is_ok()
 }
 
 fn is_web_service_ready(port: u16) -> bool {
@@ -497,7 +496,7 @@ async fn check_java() -> bool {
         .unwrap_or(false)
 }
 
-/// 获取 CLI 和 Desktop 版本状态
+/// 获取 CLI 和 Studio 版本状态
 #[tauri::command]
 async fn check_versions() -> VersionStatus {
     tauri::async_runtime::spawn_blocking(check_versions_blocking)
@@ -507,15 +506,15 @@ async fn check_versions() -> VersionStatus {
             cli_current: None,
             cli_latest: None,
             cli_update_available: false,
-            desktop_current: format!("v{}", env!("CARGO_PKG_VERSION")),
-            desktop_latest: None,
-            desktop_update_available: false,
+            studio_current: format!("v{}", env!("CARGO_PKG_VERSION")),
+            studio_latest: None,
+            studio_update_available: false,
             error: Some(format!("版本检测任务失败: {}", error)),
         })
 }
 
 fn check_versions_blocking() -> VersionStatus {
-    let desktop_current = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let studio_current = format!("v{}", env!("CARGO_PKG_VERSION"));
     let soloncode_path = find_soloncode_path();
     let installed = soloncode_path.is_some();
     let cli_current = soloncode_path
@@ -528,19 +527,19 @@ fn check_versions_blocking() -> VersionStatus {
                 .as_deref()
                 .zip(remote.cli.as_deref())
                 .is_some_and(|(current, latest)| is_version_different(current, latest));
-            let desktop_update_available = remote
-                .desktop
+            let studio_update_available = remote
+                .studio
                 .as_deref()
-                .is_some_and(|latest| is_version_different(&desktop_current, latest));
+                .is_some_and(|latest| is_version_different(&studio_current, latest));
 
             VersionStatus {
                 installed,
                 cli_current,
                 cli_latest: remote.cli,
                 cli_update_available,
-                desktop_current,
-                desktop_latest: remote.desktop,
-                desktop_update_available,
+                studio_current,
+                studio_latest: remote.studio,
+                studio_update_available,
                 error: None,
             }
         }
@@ -549,9 +548,9 @@ fn check_versions_blocking() -> VersionStatus {
             cli_current,
             cli_latest: None,
             cli_update_available: false,
-            desktop_current,
-            desktop_latest: None,
-            desktop_update_available: false,
+            studio_current,
+            studio_latest: None,
+            studio_update_available: false,
             error: Some(error),
         },
     }
@@ -608,9 +607,9 @@ fn reveal_workspace(workspace: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
-/// 打开 Desktop 下载页面
+/// 打开 Studio 下载页面
 #[tauri::command]
-fn open_desktop_download_page() -> Result<(), String> {
+fn open_studio_download_page() -> Result<(), String> {
     open_url("https://github.com/visduo/soloncode-studio/releases")
 }
 
@@ -817,7 +816,7 @@ fn start_soloncode(
         let mut guard = state
             .processes
             .lock()
-            .map_err(|_| "进程状态不可用，请重启 Desktop 后重试".to_string())?;
+            .map_err(|_| "进程状态不可用，请重启 Studio 后重试".to_string())?;
         if let Some(process) = guard.get_mut(&workspace_key) {
             match process.child.try_wait() {
                 Ok(Some(_)) | Err(_) => {
@@ -850,7 +849,7 @@ fn start_soloncode(
     let used_ports: HashSet<u16> = state
         .processes
         .lock()
-        .map_err(|_| "进程状态不可用，请重启 Desktop 后重试".to_string())?
+        .map_err(|_| "进程状态不可用，请重启 Studio 后重试".to_string())?
         .values()
         .map(|process| process.port)
         .collect();
@@ -882,7 +881,8 @@ fn start_soloncode(
     }
 
     #[cfg(not(target_os = "windows"))]
-    let start_script = "cd \"$SOLONCODE_WORKSPACE\" && exec \"$SOLONCODE_BIN\" serve \"$SOLONCODE_PORT\"";
+    let start_script =
+        "cd \"$SOLONCODE_WORKSPACE\" && exec \"$SOLONCODE_BIN\" serve \"$SOLONCODE_PORT\"";
 
     #[cfg(target_os = "windows")]
     let mut command = {
@@ -985,7 +985,7 @@ fn start_soloncode(
         let mut guard = state
             .processes
             .lock()
-            .map_err(|_| "进程状态不可用，请重启 Desktop 后重试".to_string())?;
+            .map_err(|_| "进程状态不可用，请重启 Studio 后重试".to_string())?;
         guard.insert(
             workspace_key.clone(),
             SolonProcess {
@@ -1074,9 +1074,17 @@ fn start_soloncode(
             if i % 4 == 0 {
                 let message = if declared_port {
                     if is_local_port_ready(current_port) {
-                        format!("⏳ 端口 {} 已监听，等待 Web 服务响应... ({}s)", current_port, i / 2)
+                        format!(
+                            "⏳ 端口 {} 已监听，等待 Web 服务响应... ({}s)",
+                            current_port,
+                            i / 2
+                        )
                     } else {
-                        format!("⏳ 已检测到端口 {}，等待服务监听... ({}s)", current_port, i / 2)
+                        format!(
+                            "⏳ 已检测到端口 {}，等待服务监听... ({}s)",
+                            current_port,
+                            i / 2
+                        )
                     }
                 } else {
                     format!("⏳ 等待 SolonCode 声明服务端口... ({}s)", i / 2)
@@ -1105,7 +1113,10 @@ fn start_soloncode(
                 if !declared_port {
                     "❌ SolonCode 在30秒内未声明服务端口".to_string()
                 } else if !is_local_port_ready(current_port) {
-                    format!("❌ SolonCode 已声明端口 {}，但30秒内没有监听该端口", current_port)
+                    format!(
+                        "❌ SolonCode 已声明端口 {}，但30秒内没有监听该端口",
+                        current_port
+                    )
                 } else {
                     format!("❌ 端口 {} 已监听，但 Web 服务30秒内未响应", current_port)
                 }
@@ -1156,7 +1167,7 @@ fn stop_soloncode(
     let mut guard = state
         .processes
         .lock()
-        .map_err(|_| "进程状态不可用，请重启 Desktop 后重试".to_string())?;
+        .map_err(|_| "进程状态不可用，请重启 Studio 后重试".to_string())?;
     if let Some(process) = guard.remove(&workspace_key) {
         kill_child_tree(process.child, process.process_group_id, Some(process.port));
         let message = "🛑 停止 SolonCode".to_string();
@@ -1199,7 +1210,7 @@ pub fn run() {
             pick_workspace,
             home_workspace_path,
             reveal_workspace,
-            open_desktop_download_page,
+            open_studio_download_page,
             install_soloncode,
             uninstall_soloncode,
             start_soloncode,
