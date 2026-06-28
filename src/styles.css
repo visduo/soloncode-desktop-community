@@ -40,7 +40,7 @@ body {
     background: var(--bg-primary);
 }
 
-.update-dialog-backdrop {
+.dialog-backdrop {
     position: fixed;
     inset: 0;
     z-index: 50;
@@ -50,11 +50,11 @@ body {
     background: rgba(20, 32, 51, 0.36);
 }
 
-.update-dialog-backdrop[hidden] {
+.dialog-backdrop[hidden] {
     display: none;
 }
 
-.update-dialog {
+.dialog-panel {
     display: grid;
     gap: 18px;
     width: min(420px, 100%);
@@ -65,12 +65,12 @@ body {
     box-shadow: var(--shadow-float);
 }
 
-.update-dialog h2 {
+.dialog-panel h2 {
     margin: 0;
     font-size: 1.08rem;
 }
 
-.update-dialog p {
+.dialog-panel p {
     margin: 10px 0 0;
     color: var(--text-secondary);
     font-size: 0.9rem;
@@ -104,22 +104,27 @@ body {
     box-shadow: 0 0 0 3px rgba(41, 98, 255, 0.12);
 }
 
-.update-dialog-actions {
+.dialog-actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 10px;
 }
 
-.update-dialog-btn {
+.dialog-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     min-width: 86px;
     height: 36px;
+    padding: 0 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     background: #ffffff;
     color: var(--text-primary);
     font-size: 0.84rem;
     font-weight: 700;
+    text-align: center;
     cursor: pointer;
     transition:
         background 0.15s ease,
@@ -128,18 +133,18 @@ body {
         box-shadow 0.15s ease;
 }
 
-.update-dialog-btn:hover {
+.dialog-btn:hover {
     border-color: var(--border-strong);
     background: #f3f7fb;
 }
 
-.update-dialog-btn.primary {
+.dialog-btn.primary {
     border-color: var(--accent);
     background: var(--accent);
     color: #ffffff;
 }
 
-.update-dialog-btn.primary:hover {
+.dialog-btn.primary:hover {
     border-color: var(--accent-strong);
     background: var(--accent-strong);
 }
@@ -419,6 +424,7 @@ body.project-mode .project-view {
 .brand-row {
     display: flex;
     align-items: center;
+    gap: 10px;
     min-width: 0;
 }
 
@@ -568,11 +574,13 @@ h1 {
     color: var(--state-error);
 }
 
+.tool-website .tool-icon,
 .tool-github .tool-icon {
     background: #eef2f7;
     color: var(--text-primary);
 }
 
+.tool-website .app-icon,
 .tool-github .app-icon {
     width: 15px;
     height: 15px;

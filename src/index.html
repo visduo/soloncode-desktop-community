@@ -39,7 +39,7 @@
                                 onclick="handleCliPrimaryAction()"
                                 title="安装或更新 SolonCode CLI"
                             >
-                                <span class="tool-icon" data-icon="download" aria-hidden="true"></span>
+                                <span class="tool-icon" data-icon="install" aria-hidden="true"></span>
                                 <span>安装 CLI</span>
                             </button>
                             <button
@@ -49,11 +49,21 @@
                                 title="卸载本机 SolonCode CLI"
                                 disabled
                             >
-                                <span class="tool-icon" data-icon="x" aria-hidden="true"></span>
+                                <span class="tool-icon" data-icon="close" aria-hidden="true"></span>
                                 <span>卸载 CLI</span>
                             </button>
                         </div>
                         <div class="action-group repo-group">
+                            <button
+                                class="tool-btn tool-website"
+                                type="button"
+                                onclick="openWebsitePage()"
+                                aria-label="打开官网"
+                                title="打开 SolonCode 官网"
+                            >
+                                <span class="tool-icon" data-icon="website" aria-hidden="true"></span>
+                                <span>官网</span>
+                            </button>
                             <button
                                 class="tool-btn tool-github"
                                 type="button"
@@ -80,7 +90,7 @@
                                 aria-label="打开工作区"
                                 onclick="handleOpenWorkspace()"
                             >
-                                <span class="workspace-add-icon" data-icon="folder-plus" aria-hidden="true"></span>
+                                <span class="workspace-add-icon" data-icon="addWorkspace" aria-hidden="true"></span>
                                 <span>打开工作区</span>
                             </button>
                         </div>
@@ -137,18 +147,18 @@
                 <section class="project-view" id="project-view"></section>
             </main>
 
-            <div class="update-dialog-backdrop" id="update-dialog" hidden>
-                <section class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-dialog-title">
+            <div class="dialog-backdrop" id="prompt-dialog" hidden>
+                <section class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="prompt-dialog-title">
                     <div>
-                        <h2 id="update-dialog-title"></h2>
-                        <p id="update-dialog-message"></p>
+                        <h2 id="prompt-dialog-title"></h2>
+                        <p id="prompt-dialog-message"></p>
                     </div>
-                    <div class="update-dialog-actions" id="update-dialog-actions"></div>
+                    <div class="dialog-actions" id="prompt-dialog-actions"></div>
                 </section>
             </div>
 
-            <div class="update-dialog-backdrop" id="workspace-alias-dialog" hidden>
-                <section class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-alias-title">
+            <div class="dialog-backdrop" id="workspace-alias-dialog" hidden>
+                <section class="dialog-panel" role="dialog" aria-modal="true" aria-labelledby="workspace-alias-title">
                     <div>
                         <h2 id="workspace-alias-title">修改工作区名称</h2>
                         <p id="workspace-alias-message">可以填写一个更容易识别的名称或备注。</p>
@@ -162,11 +172,9 @@
                             placeholder="请输入工作区名称或备注"
                         />
                     </div>
-                    <div class="update-dialog-actions">
-                        <button class="update-dialog-btn" type="button" id="workspace-alias-cancel">取消</button>
-                        <button class="update-dialog-btn primary" type="button" id="workspace-alias-confirm">
-                            保存
-                        </button>
+                    <div class="dialog-actions">
+                        <button class="dialog-btn" type="button" id="workspace-alias-cancel">取消</button>
+                        <button class="dialog-btn primary" type="button" id="workspace-alias-confirm">保存</button>
                     </div>
                 </section>
             </div>

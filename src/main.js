@@ -12,7 +12,7 @@ let isJavaAvailable = false;
 let cliUpdatePromptShown = false;
 let installCliPromptShown = false;
 let javaPromptShown = false;
-const pendingUpdatePrompts = [];
+const pendingPrompts = [];
 const runningProjects = new Map();
 const projectFrames = new Map();
 const startingWorkspaceKeys = new Set();
@@ -36,28 +36,30 @@ const logViewState = {
 // ─── 工具函数 ────────────────────────────────────────────
 
 const ICON_PATHS = {
-    download:
+    install:
         '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download-icon lucide-download"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg>',
-    refresh:
-        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw-icon lucide-rotate-ccw"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
-    x: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+    update: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw-icon lucide-rotate-ccw"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
+    close: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x-icon lucide-x"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+    website:
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-laptop-minimal-icon lucide-laptop-minimal"><rect width="18" height="12" x="3" y="4" rx="2" ry="2"/><line x1="2" x2="22" y1="20" y2="20"/></svg>',
     github: '<svg fill="currentColor" fill-rule="evenodd" height="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" width="1em" xmlns="http://www.w3.org/2000/svg"><title>Github</title><path d="M12 0c6.63 0 12 5.276 12 11.79-.001 5.067-3.29 9.567-8.175 11.187-.6.118-.825-.25-.825-.56 0-.398.015-1.665.015-3.242 0-1.105-.375-1.813-.81-2.181 2.67-.295 5.475-1.297 5.475-5.822 0-1.297-.465-2.344-1.23-3.169.12-.295.54-1.503-.12-3.125 0 0-1.005-.324-3.3 1.209a11.32 11.32 0 00-3-.398c-1.02 0-2.04.133-3 .398-2.295-1.518-3.3-1.209-3.3-1.209-.66 1.622-.24 2.83-.12 3.125-.765.825-1.23 1.887-1.23 3.169 0 4.51 2.79 5.527 5.46 5.822-.345.294-.66.81-.765 1.577-.69.31-2.415.81-3.495-.973-.225-.354-.9-1.223-1.845-1.209-1.005.015-.405.56.015.781.51.28 1.095 1.327 1.23 1.666.24.663 1.02 1.93 4.035 1.385 0 .988.015 1.916.015 2.196 0 .31-.225.664-.825.56C3.303 21.374-.003 16.867 0 11.791 0 5.276 5.37 0 12 0z"></path></svg>',
-    "folder-plus":
+    addWorkspace:
         '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-plus-icon lucide-folder-plus"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
-    play: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play-icon lucide-play"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg>',
-    square: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-icon lucide-square"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>',
-    loader: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-loader-icon lucide-loader"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>',
-    "edit-3":
-        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-pen-icon lucide-square-pen"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg>',
-    "external-link":
+    run: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play-icon lucide-play"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/></svg>',
+    stop: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-icon lucide-square"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>',
+    loading:
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-loader-icon lucide-loader"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></svg>',
+    edit: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-pen-icon lucide-square-pen"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/></svg>',
+    openExternal:
         '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-square-arrow-out-up-right-icon lucide-square-arrow-out-up-right"><path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/></svg>',
     more: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-ellipsis-icon lucide-ellipsis"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>',
-    minus: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2-icon lucide-trash-2"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
-    folder: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-open-icon lucide-folder-open"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>'
+    remove: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash2-icon lucide-trash-2"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+    openFolder:
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-open-icon lucide-folder-open"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>'
 };
 
 function iconSvg(name) {
-    const paths = ICON_PATHS[name] || ICON_PATHS.play;
+    const paths = ICON_PATHS[name] || ICON_PATHS.run;
     if (typeof paths === "string" && paths.trimStart().startsWith("<svg")) {
         return paths
             .replace(/\sclass="[^"]*"/g, "")
@@ -278,7 +280,7 @@ function refreshButtons() {
 
     const canInstallCli = !isInstalled && isJavaAvailable;
     const canUpdateCli = isInstalled && isJavaAvailable && cliUpdateAvailable && !hasRunningProjects;
-    const installIcon = isInstalled ? "refresh" : "download";
+    const installIcon = isInstalled ? "update" : "install";
     btnInstall.disabled = isBusy || !(canInstallCli || canUpdateCli);
     btnInstall.classList.toggle("tool-update", isInstalled);
     btnInstall.classList.toggle("tool-install", !isInstalled);
@@ -326,33 +328,33 @@ function updateVersionFooter(info) {
     studioVersion.classList.toggle("version-update", Boolean(info.studio_update_available));
 }
 
-function closeUpdateDialog() {
-    const dialog = document.getElementById("update-dialog");
+function closePromptDialog() {
+    const dialog = document.getElementById("prompt-dialog");
     if (dialog) dialog.hidden = true;
-    const closedPrompt = pendingUpdatePrompts.shift();
+    const closedPrompt = pendingPrompts.shift();
     if (closedPrompt?.key) queuedPromptKeys.delete(closedPrompt.key);
-    renderNextUpdatePrompt();
+    renderNextPrompt();
 }
 
-function queueUpdatePrompt(prompt) {
+function queuePrompt(prompt) {
     if (prompt.key && queuedPromptKeys.has(prompt.key)) return;
     if (prompt.key) queuedPromptKeys.add(prompt.key);
-    pendingUpdatePrompts.push(prompt);
-    if (pendingUpdatePrompts.length === 1) renderNextUpdatePrompt();
+    pendingPrompts.push(prompt);
+    if (pendingPrompts.length === 1) renderNextPrompt();
 }
 
 function confirmCliAction({ key, title, message, confirmLabel, onConfirm }) {
-    queueUpdatePrompt({
+    queuePrompt({
         key,
         title,
         message,
         actions: [
-            { label: "取消", primary: false, handler: closeUpdateDialog },
+            { label: "取消", primary: false, handler: closePromptDialog },
             {
                 label: confirmLabel,
                 primary: true,
                 handler: () => {
-                    closeUpdateDialog();
+                    closePromptDialog();
                     onConfirm();
                 }
             }
@@ -360,14 +362,14 @@ function confirmCliAction({ key, title, message, confirmLabel, onConfirm }) {
     });
 }
 
-function renderNextUpdatePrompt() {
-    const dialog = document.getElementById("update-dialog");
-    const title = document.getElementById("update-dialog-title");
-    const message = document.getElementById("update-dialog-message");
-    const actions = document.getElementById("update-dialog-actions");
-    if (!dialog || !title || !message || !actions || pendingUpdatePrompts.length === 0) return;
+function renderNextPrompt() {
+    const dialog = document.getElementById("prompt-dialog");
+    const title = document.getElementById("prompt-dialog-title");
+    const message = document.getElementById("prompt-dialog-message");
+    const actions = document.getElementById("prompt-dialog-actions");
+    if (!dialog || !title || !message || !actions || pendingPrompts.length === 0) return;
 
-    const prompt = pendingUpdatePrompts[0];
+    const prompt = pendingPrompts[0];
     title.textContent = prompt.title;
     message.textContent = prompt.message;
     actions.innerHTML = "";
@@ -375,7 +377,7 @@ function renderNextUpdatePrompt() {
     for (const action of prompt.actions) {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = `update-dialog-btn ${action.primary ? "primary" : "secondary"}`;
+        button.className = `dialog-btn ${action.primary ? "primary" : "secondary"}`;
         button.textContent = action.label;
         button.addEventListener("click", action.handler);
         actions.appendChild(button);
@@ -385,58 +387,58 @@ function renderNextUpdatePrompt() {
 }
 
 function showInstallCliPrompt() {
-    queueUpdatePrompt({
+    queuePrompt({
         key: "install-cli",
         title: "CLI 未安装",
         message: "SolonCode CLI 未安装，请先点击右上角安装 CLI。",
-        actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
+        actions: [{ label: "知道了", primary: true, handler: closePromptDialog }]
     });
 }
 
 function showJavaPrompt() {
-    queueUpdatePrompt({
+    queuePrompt({
         key: "missing-java",
         title: "缺少 Java 环境",
         message: "未检测到 Java 运行环境，请先安装 Java 后再安装/启动 SolonCode CLI。",
-        actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
+        actions: [{ label: "知道了", primary: true, handler: closePromptDialog }]
     });
 }
 
 function showUpdatePrompts(info) {
     if (info.cli_update_available && !cliUpdatePromptShown) {
         cliUpdatePromptShown = true;
-        queueUpdatePrompt({
+        queuePrompt({
             key: "cli-update",
             title: "CLI 可更新",
             message: "SolonCode CLI 有新版本，请点击右上角更新按钮进行更新。",
-            actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
+            actions: [{ label: "知道了", primary: true, handler: closePromptDialog }]
         });
     }
 
     const studioLatest = normalizeVersionText(info.studio_latest);
     if (info.studio_update_available && localStorage.getItem(HIDDEN_STUDIO_UPDATE_KEY) !== studioLatest) {
-        queueUpdatePrompt({
+        queuePrompt({
             key: `studio-update-${studioLatest}`,
             title: "Studio 可更新",
-            message: `SolonCode Studio ${studioLatest} 已发布，请从 GitHub 下载最新安装包。`,
+            message: `SolonCode Studio ${studioLatest} 已发布，请从官网下载最新安装包。`,
             actions: [
-                { label: "稍后", primary: false, handler: closeUpdateDialog },
+                { label: "稍后", primary: false, handler: closePromptDialog },
                 /**
                 {
                     label: "不再提醒",
                     primary: false,
                     handler: () => {
                         localStorage.setItem(HIDDEN_STUDIO_UPDATE_KEY, studioLatest);
-                        closeUpdateDialog();
+                        closePromptDialog();
                     }
                 },
                 **/
                 {
-                    label: "访问 GitHub",
+                    label: "访问官网",
                     primary: true,
                     handler: () => {
-                        closeUpdateDialog();
-                        openGitHubReleasePage();
+                        closePromptDialog();
+                        openWebsitePage();
                     }
                 }
             ]
@@ -485,11 +487,11 @@ async function refreshJavaStatus() {
         isJavaAvailable = false;
         if (!javaPromptShown) {
             javaPromptShown = true;
-            queueUpdatePrompt({
+            queuePrompt({
                 key: "java-check-failed",
                 title: "Java 检测失败",
                 message: "Java 运行环境检测失败: " + e,
-                actions: [{ label: "知道了", primary: true, handler: closeUpdateDialog }]
+                actions: [{ label: "知道了", primary: true, handler: closePromptDialog }]
             });
         }
     }
@@ -737,7 +739,7 @@ function renderTabs() {
         const tab = document.createElement("button");
         tab.className = "tab-item" + (activeTabKey === project.workspace_key ? " active" : "");
         tab.type = "button";
-        tab.innerHTML = `<span class="tab-main"><span class="tab-dot running"></span><span class="tab-label"></span></span><span class="tab-close">${iconSvg("x")}</span>`;
+        tab.innerHTML = `<span class="tab-main"><span class="tab-dot running"></span><span class="tab-label"></span></span><span class="tab-close">${iconSvg("close")}</span>`;
         tab.querySelector(".tab-label").textContent = project.name;
         tab.addEventListener("click", () => activateProjectTab(project.workspace_key));
         tab.querySelector(".tab-close").addEventListener("click", (event) => {
@@ -784,25 +786,25 @@ async function openGitHubPage() {
     }
 }
 
-async function openGitHubReleasePage() {
+async function openWebsitePage() {
     try {
-        await invoke("open_studio_github_release_page");
+        await invoke("open_studio_website_page");
     } catch (e) {
-        appendLog(formatError("打开 GitHub 更新页失败: " + e));
+        appendLog(formatError("打开官网失败: " + e));
     }
 }
 
 function getWorkspaceIcon(name) {
     const iconNames = {
-        play: "play",
-        stop: "square",
-        edit: "edit-3",
-        open: "external-link",
+        play: "run",
+        stop: "stop",
+        edit: "edit",
+        open: "openExternal",
         more: "more",
-        remove: "minus",
-        folder: "folder"
+        remove: "remove",
+        folder: "openFolder"
     };
-    return iconSvg(iconNames[name] || "play");
+    return iconSvg(iconNames[name] || "run");
 }
 
 function createWorkspaceMenuItem(icon, label, onClick) {
@@ -1185,6 +1187,7 @@ window.handleStop = handleStop;
 window.handleUninstall = handleUninstall;
 window.handleOpenWorkspace = handleOpenWorkspace;
 window.openGitHubPage = openGitHubPage;
+window.openWebsitePage = openWebsitePage;
 window.clearLog = clearLog;
 window.activateHomeTab = activateHomeTab;
 window.closeCurrentWorkspace = closeCurrentWorkspace;

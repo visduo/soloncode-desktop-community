@@ -14,7 +14,7 @@ use tauri::{Emitter, Manager, RunEvent};
 
 const PORT_START: u16 = 49152;
 const PORT_END: u16 = 60999;
-const VERSION_URL: &str = "https://static-lab.6os.net/soloncode-studio/version.php";
+const VERSION_URL: &str = "https://soloncode.studio/version.php";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -619,6 +619,12 @@ fn open_studio_github_release_page() -> Result<(), String> {
     open_url("https://github.com/visduo/soloncode-studio/releases")
 }
 
+/// 打开 Studio 官网
+#[tauri::command]
+fn open_studio_website_page() -> Result<(), String> {
+    open_url("https://soloncode.studio/")
+}
+
 fn open_url(url: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let mut command = {
@@ -1218,6 +1224,7 @@ pub fn run() {
             reveal_workspace,
             open_studio_github_home_page,
             open_studio_github_release_page,
+            open_studio_website_page,
             install_soloncode,
             uninstall_soloncode,
             start_soloncode,
