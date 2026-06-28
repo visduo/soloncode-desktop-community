@@ -733,7 +733,7 @@ fn open_soloncode_system_terminal(workspace: Option<String>) -> Result<(), Strin
                 .map(|duration| duration.as_millis())
                 .unwrap_or(0)
         ));
-        fs::write(&launcher_path, format!("#!/bin/sh\n{}\n", script))
+        fs::write(&launcher_path, format!("#!/bin/sh\nrm -- \"$0\"\n{}\n", script))
             .map_err(|e| format!("创建系统终端启动脚本失败: {}", e))?;
         let mut permissions = fs::metadata(&launcher_path)
             .map_err(|e| format!("读取系统终端启动脚本权限失败: {}", e))?
@@ -757,11 +757,26 @@ fn open_soloncode_system_terminal(workspace: Option<String>) -> Result<(), Strin
     };
 
     #[cfg(target_os = "linux")]
-    let mut command = {
-        let mut command = Command::new("x-terminal-emulator");
-        command.args(["-e", "bash", "-lc", &script]);
-        command
-    };
+    {
+        let candidates: [(&str, Vec<&str>); 5] = [
+            ("x-terminal-emulator", vec!["-e", "bash", "-lc", &script]),
+            ("gnome-terminal", vec!["--", "bash", "-lc", &script]),
+            ("konsole", vec!["-e", "bash", "-lc", &script]),
+            ("xfce4-terminal", vec!["-e", "bash", "-lc", &script]),
+            ("xterm", vec!["-e", "bash", "-lc", &script]),
+        ];
+        let mut last_error = None;
+        for (program, args) in candidates {
+            match Command::new(program).args(args).spawn() {
+                Ok(_) => return Ok(()),
+                Err(e) => last_error = Some(format!("{}: {}", program, e)),
+            }
+        }
+        return Err(format!(
+            "打开系统终端失败: {}",
+            last_error.unwrap_or_else(|| "未找到可用终端".to_string())
+        ));
+    }
 
     command
         .spawn()

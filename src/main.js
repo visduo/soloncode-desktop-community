@@ -775,6 +775,7 @@ function createProjectView(project) {
         const surface = panel.querySelector(".terminal-surface");
         const input = panel.querySelector(".terminal-hidden-input");
         surface.addEventListener("click", () => input.focus());
+        surface.addEventListener("scroll", () => syncTerminalInputPosition(surface));
         input.addEventListener("input", (event) => handleTerminalInput(event, input, project.project_key));
         input.addEventListener("keydown", (event) => handleTerminalKeydown(event, project.project_key));
         input.addEventListener("compositionend", (event) => handleTerminalInput(event, input, project.project_key));
@@ -1243,11 +1244,7 @@ async function handleRun(workspace = selectedWorkspace, target = RUN_TARGETS.web
         const project = await invoke("start_soloncode", { workspace: targetWorkspace, mode: option.mode });
         project.launch_target = target;
         project.external = option.external;
-        if (project.already_running) {
-            startingWorkspaceKeys.delete(project.workspace_key);
-            upsertProject(project);
-            await openRunningProject(project);
-        } else if (target === RUN_TARGETS.cliInternal) {
+        if (target === RUN_TARGETS.cliInternal) {
             startingWorkspaceKeys.delete(project.workspace_key);
             upsertProject(project);
             await openRunningProject(project);
@@ -1255,11 +1252,7 @@ async function handleRun(workspace = selectedWorkspace, target = RUN_TARGETS.web
             startingWorkspaceKeys.add(project.workspace_key);
             renderWorkspaces();
         }
-        appendLog(
-            project.already_running ? `已在运行: ${workspaceDisplayName}` : `启动中: ${workspaceDisplayName}`,
-            project.workspace_key,
-            workspaceDisplayName
-        );
+        appendLog(`启动中: ${workspaceDisplayName}`, project.workspace_key, workspaceDisplayName);
         setStatus(
             target === RUN_TARGETS.cliInternal
                 ? `${getModeLabel(option.mode)} 运行中`
@@ -1420,7 +1413,8 @@ listen("soloncode-workspace-output", (e) => {
 listen("soloncode-ready", (e) => {
     const project = e.payload;
     project.name = getWorkspaceDisplayName(project.workspace, project.name);
-    const pendingTarget = pendingRunTargets.get(project.project_key) || RUN_TARGETS.webInternal;
+    const fallbackTarget = project.mode === LAUNCH_MODES.cli ? RUN_TARGETS.cliInternal : RUN_TARGETS.webInternal;
+    const pendingTarget = pendingRunTargets.get(project.project_key) || fallbackTarget;
     pendingRunTargets.delete(project.project_key);
     project.launch_target = pendingTarget;
     project.external = RUN_TARGET_OPTIONS.find((option) => option.key === pendingTarget)?.external || false;
@@ -1432,6 +1426,13 @@ listen("soloncode-ready", (e) => {
     setStatus(`${getModeLabel(project.mode)} 已就绪`, "running");
     setBusy(false);
     if (!alreadyShownAsRunning) openRunningProject(project);
+});
+
+window.addEventListener("resize", () => {
+    for (const frame of projectFrames.values()) {
+        const surface = frame.querySelector?.(".terminal-surface");
+        if (surface) syncTerminalInputPosition(surface);
+    }
 });
 
 listen("soloncode-failed", (e) => {
