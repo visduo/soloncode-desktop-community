@@ -389,7 +389,7 @@ function renderVersionFooterItem(element, { label, version, installed, updateAva
     element.setAttribute("role", "button");
     element.setAttribute("tabindex", "0");
     element.setAttribute("aria-label", `${label} ${versionText}${updateAvailable ? "，有新版本" : ""}`);
-    element.innerHTML = `<span class="version-dot" aria-hidden="true">●</span><span class="version-main">${label} ${versionText}</span><span class="version-update-text">${updateAvailable ? "（有新版本）" : ""}</span>`;
+    element.innerHTML = `<span class="version-main">${label} ${versionText}</span><span class="version-update-text">${updateAvailable ? "（有新版本）" : ""}</span>`;
     element.onclick = onClick;
     element.onkeydown = (event) => {
         if (event.key === "Enter" || event.key === " ") {
