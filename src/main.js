@@ -354,13 +354,6 @@ function canStartWorkspace(path) {
     );
 }
 
-function formatVersion(current, latest, needsUpdate, installed = true) {
-    const currentText = current || (installed ? "已安装，版本获取失败" : "未安装");
-    const latestText = latest || "获取失败";
-    const suffix = needsUpdate ? "，可更新" : "";
-    return `本机 ${currentText} / 最新 ${latestText}${suffix}`;
-}
-
 function normalizeVersionText(version) {
     if (!version) return "未知版本";
     return version.startsWith("v") ? version : `v${version}`;
@@ -372,20 +365,42 @@ function updateVersionFooter(info) {
     if (!cliVersion || !studioVersion) return;
 
     cliUpdateAvailable = Boolean(info.cli_update_available);
-    cliVersion.textContent = `CLI：${formatVersion(
-        info.cli_current,
-        info.cli_latest,
-        info.cli_update_available,
-        Boolean(info.installed)
-    )}`;
-    studioVersion.textContent = `Studio：${formatVersion(
-        info.studio_current,
-        info.studio_latest,
-        info.studio_update_available,
-        true
-    )}`;
-    cliVersion.classList.toggle("version-update", Boolean(info.cli_update_available));
-    studioVersion.classList.toggle("version-update", Boolean(info.studio_update_available));
+    renderVersionFooterItem(cliVersion, {
+        label: "CLI",
+        version: info.cli_current,
+        installed: Boolean(info.installed),
+        updateAvailable: Boolean(info.cli_update_available),
+        onClick: () => handleFooterVersionClick("cli")
+    });
+    renderVersionFooterItem(studioVersion, {
+        label: "Studio",
+        version: info.studio_current,
+        installed: true,
+        updateAvailable: Boolean(info.studio_update_available),
+        onClick: () => handleFooterVersionClick("studio")
+    });
+}
+
+function renderVersionFooterItem(element, { label, version, installed, updateAvailable, onClick }) {
+    if (!element) return;
+    const versionText = normalizeVersionText(version || (installed ? "未知版本" : "未安装"));
+    element.classList.toggle("version-update", Boolean(updateAvailable));
+    element.classList.add("is-clickable");
+    element.setAttribute("role", "button");
+    element.setAttribute("tabindex", "0");
+    element.setAttribute("aria-label", `${label} ${versionText}${updateAvailable ? "，有新版本" : ""}`);
+    element.innerHTML = `<span class="version-dot" aria-hidden="true">●</span><span class="version-main">${label} ${versionText}</span><span class="version-update-text">${updateAvailable ? "（有新版本）" : ""}</span>`;
+    element.onclick = onClick;
+    element.onkeydown = (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onClick();
+        }
+    };
+}
+
+function handleFooterVersionClick(source) {
+    openWebsitePage();
 }
 
 function closePromptDialog() {

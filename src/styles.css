@@ -494,11 +494,30 @@ body.project-mode .project-view {
     display: inline-flex;
     align-items: center;
     min-width: 0;
+    gap: 0;
+    padding: 0;
+    color: var(--text-secondary);
+    cursor: pointer;
 }
 
 .version-update {
     color: rgba(214, 129, 18, 0.72);
     font-weight: 750;
+}
+
+.version-main {
+    white-space: nowrap;
+}
+
+.version-dot {
+    margin-right: 4px;
+    font-size: 0.62rem;
+    line-height: 1;
+}
+
+.version-update-text {
+    margin-left: 4px;
+    color: rgba(214, 129, 18, 0.85);
 }
 
 .brand-row {
