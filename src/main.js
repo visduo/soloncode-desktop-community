@@ -21,6 +21,7 @@ const queuedPromptKeys = new Set();
 let editingWorkspacePath = null;
 let openWorkspaceMenuKey = null;
 let openRunMenuKey = null;
+let openWebPageDialogShown = false;
 
 const WORKSPACES_KEY = "soloncode.workspaces";
 const WORKSPACE_ALIASES_KEY = "soloncode.workspaceAliases";
@@ -31,6 +32,10 @@ const MAX_LOG_LINES = 500;
 const LAUNCH_MODES = {
     web: "web",
     cli: "cli"
+};
+const PROJECT_TYPES = {
+    workspace: "workspace",
+    webPage: "web-page"
 };
 const RUN_TARGETS = {
     webInternal: "web-internal",
@@ -411,6 +416,68 @@ function closePromptDialog() {
     renderNextPrompt();
 }
 
+function normalizeWebPageUrl(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw)) return raw;
+    return `https://${raw}`;
+}
+
+function showWebPageUrlDialog() {
+    const dialog = document.getElementById("web-page-url-dialog");
+    const input = document.getElementById("web-page-url-input");
+    if (!dialog || !input) return;
+    openWebPageDialogShown = true;
+    dialog.hidden = false;
+    input.value = "";
+    requestAnimationFrame(() => {
+        input.focus();
+        input.select();
+    });
+}
+
+function closeWebPageUrlDialog() {
+    const dialog = document.getElementById("web-page-url-dialog");
+    const input = document.getElementById("web-page-url-input");
+    if (input) input.value = "";
+    if (dialog) dialog.hidden = true;
+    openWebPageDialogShown = false;
+}
+
+function shortWebPageTitle(url) {
+    try {
+        const parsed = new URL(url);
+        return parsed.hostname.replace(/^www\./, "") || url;
+    } catch (_) {
+        return url;
+    }
+}
+
+function openWebPageTab(urlValue) {
+    const url = normalizeWebPageUrl(urlValue);
+    if (!url) return;
+    const projectKey = `web::${url}`;
+    const existing = runningProjects.get(projectKey);
+    if (existing) {
+        activateProjectTab(projectKey);
+        return;
+    }
+
+    const project = {
+        project_key: projectKey,
+        workspace_key: projectKey,
+        workspace: null,
+        name: url,
+        mode: LAUNCH_MODES.web,
+        type: PROJECT_TYPES.webPage,
+        url,
+        launch_target: RUN_TARGETS.webInternal,
+        external: false
+    };
+    upsertProject(project);
+    activateProjectTab(projectKey);
+}
+
 function queuePrompt(prompt) {
     if (prompt.key && queuedPromptKeys.has(prompt.key)) return;
     if (prompt.key) queuedPromptKeys.add(prompt.key);
@@ -718,7 +785,9 @@ function updateActiveWorkspace() {
 }
 
 function upsertProject(project) {
-    project.name = getWorkspaceDisplayName(project.workspace, project.name);
+    if (project.type !== PROJECT_TYPES.webPage) {
+        project.name = getWorkspaceDisplayName(project.workspace, project.name);
+    }
     project.project_key = `${project.workspace_key}::${project.mode || LAUNCH_MODES.web}`;
     runningProjects.set(project.project_key, project);
     renderTabs();
@@ -748,7 +817,10 @@ function removeProjectFrame(key) {
 }
 
 function shouldRenderProjectTab(project) {
-    return project.launch_target !== RUN_TARGETS.webSystem && project.launch_target !== RUN_TARGETS.cliSystem;
+    return (
+        project.type === PROJECT_TYPES.webPage ||
+        (project.launch_target !== RUN_TARGETS.webSystem && project.launch_target !== RUN_TARGETS.cliSystem)
+    );
 }
 
 function activateProjectTab(key) {
@@ -777,6 +849,15 @@ function activateProjectTab(key) {
 }
 
 function createProjectView(project) {
+    if (project.type === PROJECT_TYPES.webPage) {
+        const frame = document.createElement("iframe");
+        frame.className = "project-frame web-page-frame";
+        frame.referrerPolicy = "no-referrer";
+        frame.allow = "fullscreen; clipboard-read; clipboard-write";
+        updateProjectView(frame, project);
+        return frame;
+    }
+
     if (project.mode === LAUNCH_MODES.cli) {
         const panel = document.createElement("div");
         panel.className = "project-terminal";
@@ -805,7 +886,27 @@ function createProjectView(project) {
     return frame;
 }
 
+function initIframeMessageListener() {
+    if (window.__iframeMsgListenerInstalled) return;
+    window.__iframeMsgListenerInstalled = true;
+
+    window.addEventListener("message", async (event) => {
+        const data = event.data;
+        if (!data?.type || data.type !== "studio-blocked-navigation") return;
+        const payload = data.payload;
+        await invoke("open_external_url", { url: payload.url });
+    });
+}
+
 function updateProjectView(element, project) {
+    if (project.type === PROJECT_TYPES.webPage) {
+        element.title = project.name;
+        if (element.getAttribute("src") !== project.url) {
+            element.src = project.url;
+        }
+        return;
+    }
+
     if (project.mode === LAUNCH_MODES.cli) {
         element.dataset.projectKey = project.project_key;
         const output = element.querySelector(".terminal-output");
@@ -896,8 +997,9 @@ function renderTabs() {
         const tab = document.createElement("button");
         tab.className = "tab-item" + (activeTabKey === project.project_key ? " active" : "");
         tab.type = "button";
-        tab.innerHTML = `<span class="tab-main"><span class="tab-dot running"></span><span class="tab-label"></span></span><span class="tab-close">${iconSvg("close")}</span>`;
-        tab.querySelector(".tab-label").textContent = project.name;
+        const isWebPage = project.type === PROJECT_TYPES.webPage;
+        tab.innerHTML = `<span class="tab-main"><span class="tab-dot ${isWebPage ? "web" : "running"}"></span><span class="tab-label"></span></span><span class="tab-close">${iconSvg("close")}</span>`;
+        tab.querySelector(".tab-label").textContent = isWebPage ? shortWebPageTitle(project.name) : project.name;
         tab.addEventListener("click", () => activateProjectTab(project.project_key));
         tab.querySelector(".tab-close").addEventListener("click", (event) => {
             event.stopPropagation();
@@ -949,6 +1051,10 @@ async function openWebsitePage() {
     } catch (e) {
         appendLog(formatError("打开官网失败: " + e));
     }
+}
+
+function openWebPage() {
+    showWebPageUrlDialog();
 }
 
 function getWorkspaceIcon(name) {
@@ -1417,6 +1523,7 @@ window.handleUninstall = handleUninstall;
 window.handleOpenWorkspace = handleOpenWorkspace;
 window.openGitHubPage = openGitHubPage;
 window.openWebsitePage = openWebsitePage;
+window.openWebPage = openWebPage;
 window.clearLog = clearLog;
 window.activateHomeTab = activateHomeTab;
 window.closeCurrentWorkspace = closeCurrentWorkspace;
@@ -1481,6 +1588,25 @@ async function init() {
     document.getElementById("app-actions").style.display = "flex";
     document.getElementById("workspace-alias-cancel")?.addEventListener("click", closeWorkspaceAliasDialog);
     document.getElementById("workspace-alias-confirm")?.addEventListener("click", saveWorkspaceAlias);
+    document.getElementById("web-page-url-cancel")?.addEventListener("click", closeWebPageUrlDialog);
+    document.getElementById("web-page-url-confirm")?.addEventListener("click", () => {
+        const input = document.getElementById("web-page-url-input");
+        const url = normalizeWebPageUrl(input?.value);
+        closeWebPageUrlDialog();
+        if (url) openWebPageTab(url);
+    });
+    document.getElementById("web-page-url-input")?.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            const url = normalizeWebPageUrl(event.currentTarget?.value);
+            closeWebPageUrlDialog();
+            if (url) openWebPageTab(url);
+        }
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeWebPageUrlDialog();
+        }
+    });
     document.getElementById("workspace-alias-input")?.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
             event.preventDefault();
@@ -1499,6 +1625,7 @@ async function init() {
     });
     refreshButtons();
     refreshHomeWorkspacePath();
+    initIframeMessageListener();
     await refreshInstallStatus();
     await refreshEnvironmentStatus();
 }

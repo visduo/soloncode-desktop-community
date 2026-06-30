@@ -317,6 +317,10 @@ button {
     background: var(--green);
 }
 
+.tab-dot.web {
+    background: linear-gradient(135deg, #0f766e, #2563eb);
+}
+
 .home-view {
     grid-column: 1 / -1;
     display: grid;
@@ -346,6 +350,14 @@ button {
     height: 100%;
     border: 0;
     background: #ffffff;
+}
+
+.web-page-frame {
+    background: #ffffff;
+}
+
+.web-page-frame:empty {
+    background: linear-gradient(180deg, #ffffff, #f8fafc);
 }
 
 .project-terminal {
