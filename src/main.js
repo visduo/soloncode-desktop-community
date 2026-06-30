@@ -798,8 +798,8 @@ function updateActiveWorkspace() {
 function upsertProject(project) {
     if (project.type !== PROJECT_TYPES.webPage) {
         project.name = getWorkspaceDisplayName(project.workspace, project.name);
+        project.project_key = `${project.workspace_key}::${project.mode || LAUNCH_MODES.web}`;
     }
-    project.project_key = `${project.workspace_key}::${project.mode || LAUNCH_MODES.web}`;
     runningProjects.set(project.project_key, project);
     renderTabs();
     renderWorkspaces();
@@ -967,7 +967,7 @@ async function closeProjectTab(key) {
     if (!project || isBusy) return;
     setBusy(true);
     try {
-        if (project.launch_target !== RUN_TARGETS.cliSystem) {
+        if (project.type !== PROJECT_TYPES.webPage && project.launch_target !== RUN_TARGETS.cliSystem) {
             await invoke("stop_soloncode", { workspace: project.workspace, mode: project.mode });
         }
         runningProjects.delete(key);
