@@ -91,6 +91,17 @@ function iconSvg(name) {
     return `<svg class="app-icon app-icon-${name}" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
 }
 
+function withStudioParam(url) {
+    try {
+        const parsedUrl = new URL(url, window.location.href);
+        parsedUrl.searchParams.set("studio", "true");
+        return parsedUrl.toString();
+    } catch (error) {
+        const separator = url.includes("?") ? "&" : "?";
+        return `${url}${separator}studio=true`;
+    }
+}
+
 function setIcon(element, name) {
     if (element) element.innerHTML = iconSvg(name);
 }
@@ -852,6 +863,7 @@ function createProjectView(project) {
     if (project.type === PROJECT_TYPES.webPage) {
         const frame = document.createElement("iframe");
         frame.className = "project-frame web-page-frame";
+        frame.src = withStudioParam(project.url);
         frame.referrerPolicy = "no-referrer";
         frame.allow = "fullscreen; clipboard-read; clipboard-write";
         updateProjectView(frame, project);
@@ -901,8 +913,9 @@ function initIframeMessageListener() {
 function updateProjectView(element, project) {
     if (project.type === PROJECT_TYPES.webPage) {
         element.title = project.name;
-        if (element.getAttribute("src") !== project.url) {
-            element.src = project.url;
+        const nextSrc = withStudioParam(project.url);
+        if (element.getAttribute("src") !== nextSrc) {
+            element.src = nextSrc;
         }
         return;
     }
