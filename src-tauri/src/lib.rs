@@ -198,7 +198,7 @@ fn soloncode_command(soloncode_path: &str) -> Command {
 fn is_java_available() -> bool {
     let mut command = Command::new("java");
     command
-        .arg("-version000")
+        .arg("-version")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     #[cfg(windows)]
@@ -1007,7 +1007,7 @@ fn start_soloncode(
     let soloncode_path =
         find_soloncode_path().ok_or("SolonCode CLI 未安装，请先点击「安装 CLI」")?;
     if !is_java_available() {
-        return Err("未检测到 Java 运行环境，请先安装 Java 后再安装/启动 SolonCode".to_string());
+        return Err("未检测到 Java 运行环境，请先安装 Java 运行环境后再安装/启动 SolonCode".to_string());
     }
 
     let used_ports: HashSet<u16> = state

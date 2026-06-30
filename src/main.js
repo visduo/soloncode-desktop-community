@@ -553,7 +553,7 @@ function showInstallJavaPrompt() {
     queuePrompt({
         key: "install-java",
         title: "缺少 Java 环境",
-        message: "未检测到 Java 运行环境，请先安装 Java 后再安装或启动 SolonCode。",
+        message: "未检测到 Java 运行环境，请先安装 Java 运行环境后再安装或启动 SolonCode。",
         actions: [{ label: "知道了", primary: true, handler: closePromptDialog }]
     });
 }
