@@ -50,6 +50,7 @@ const RUN_TARGET_OPTIONS = [
     { key: RUN_TARGETS.cliSystem, mode: LAUNCH_MODES.cli, label: "运行 CLI（系统终端）", external: true }
 ];
 const pendingRunTargets = new Map();
+const terminalSessions = new Map();
 const logViewState = {
     query: "",
     filter: "all",
@@ -859,6 +860,11 @@ function hideProjectFrames() {
 }
 
 function removeProjectFrame(key) {
+    const session = terminalSessions.get(key);
+    if (session) {
+        session.terminal.dispose();
+        terminalSessions.delete(key);
+    }
     const frame = projectFrames.get(key);
     if (frame) frame.remove();
     projectFrames.delete(key);
@@ -911,20 +917,8 @@ function createProjectView(project) {
         const panel = document.createElement("div");
         panel.className = "project-terminal";
         panel.dataset.projectKey = project.project_key;
-        panel.innerHTML = `
-            <div class="terminal-surface" tabindex="0" role="textbox" aria-label="SolonCode CLI 终端">
-                <pre class="terminal-output"></pre>
-                <input class="terminal-hidden-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
-            </div>
-        `;
-        const surface = panel.querySelector(".terminal-surface");
-        const input = panel.querySelector(".terminal-hidden-input");
-        surface.addEventListener("click", () => input.focus());
-        surface.addEventListener("scroll", () => syncTerminalInputPosition(surface));
-        input.addEventListener("input", (event) => handleTerminalInput(event, input, project.project_key));
-        input.addEventListener("keydown", (event) => handleTerminalKeydown(event, project.project_key));
-        input.addEventListener("compositionend", (event) => handleTerminalInput(event, input, project.project_key));
-        input.addEventListener("paste", (event) => handleTerminalPaste(event, project.project_key));
+        panel.innerHTML = `<div class="terminal-surface" role="textbox" aria-label="SolonCode CLI 终端"></div>`;
+        initXtermTerminal(panel, project);
         updateProjectView(panel, project);
         return panel;
     }
@@ -960,18 +954,10 @@ function updateProjectView(element, project) {
 
     if (project.mode === LAUNCH_MODES.cli) {
         element.dataset.projectKey = project.project_key;
-        const output = element.querySelector(".terminal-output");
-        if (output) {
-            renderAnsiTerminalOutput(output, project.terminal_output || "", project.terminal_input || "");
-        }
-        const surface = element.querySelector(".terminal-surface");
-        if (surface) {
-            syncTerminalInputPosition(surface);
-            scrollTerminalToBottom(surface);
-        }
-        const input = element.querySelector(".terminal-hidden-input");
-        if (input && input.value !== "") input.value = "";
-        if (document.activeElement !== input) input?.focus();
+        const session = initXtermTerminal(element, project);
+        writeXtermSnapshot(session, project.terminal_output || "");
+        fitXtermTerminal(session);
+        session.terminal.focus();
         return;
     }
     element.title = project.name;
@@ -981,24 +967,94 @@ function updateProjectView(element, project) {
     }
 }
 
-function scrollTerminalToBottom(surface) {
+function initXtermTerminal(panel, project) {
+    const existing = terminalSessions.get(project.project_key);
+    if (existing) return existing;
+
+    const terminalHost = panel.querySelector(".terminal-surface");
+    const TerminalCtor = window.Terminal;
+    const FitAddonCtor = window.FitAddon?.FitAddon;
+    if (!terminalHost || !TerminalCtor || !FitAddonCtor) {
+        throw new Error("xterm.js 资源未加载，无法启动内置终端");
+    }
+
+    const terminal = new TerminalCtor({
+        convertEol: true,
+        cursorBlink: true,
+        cursorStyle: "block",
+        fontFamily: '"SF Mono", Menlo, Consolas, monospace',
+        fontSize: 13,
+        lineHeight: 1.45,
+        scrollback: 2000,
+        theme: {
+            background: "#07101d",
+            foreground: "#d8e7f6",
+            cursor: "#d8e7f6",
+            selectionBackground: "#315f91"
+        }
+    });
+    const fitAddon = new FitAddonCtor();
+    terminal.loadAddon(fitAddon);
+    terminal.open(terminalHost);
+
+    const session = {
+        terminal,
+        fitAddon,
+        projectKey: project.project_key,
+        commandBuffer: "",
+        renderedOutput: null
+    };
+    terminal.onData((data) => handleXtermData(session, data));
+    terminalSessions.set(project.project_key, session);
+    fitXtermTerminal(session);
+    return session;
+}
+
+function fitXtermTerminal(session) {
     requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            surface.scrollTop = surface.scrollHeight;
-            syncTerminalInputPosition(surface);
-        });
+        try {
+            session.fitAddon.fit();
+        } catch (_) {
+            // xterm can reject fitting while its element is hidden during tab switches.
+        }
     });
 }
 
-function syncTerminalInputPosition(surface) {
-    const caret = surface.querySelector(".terminal-caret");
-    const input = surface.querySelector(".terminal-hidden-input");
-    if (!caret || !input) return;
+function writeXtermSnapshot(session, output) {
+    if (session.renderedOutput === output) return;
+    session.terminal.reset();
+    session.commandBuffer = "";
+    if (output) session.terminal.write(output.replace(/\n/g, "\r\n"));
+    session.renderedOutput = output;
+}
 
-    const caretRect = caret.getBoundingClientRect();
-    const surfaceRect = surface.getBoundingClientRect();
-    input.style.left = `${caretRect.left - surfaceRect.left + surface.scrollLeft}px`;
-    input.style.top = `${caretRect.top - surfaceRect.top + surface.scrollTop}px`;
+function handleXtermData(session, data) {
+    for (const char of data) {
+        if (char === "\r") {
+            const input = session.commandBuffer;
+            session.commandBuffer = "";
+            session.terminal.write("\r\n");
+            if (input.trim()) sendCliInput(session.projectKey, input);
+            continue;
+        }
+        if (char === "\u007f") {
+            if (session.commandBuffer.length > 0) {
+                session.commandBuffer = session.commandBuffer.slice(0, -1);
+                session.terminal.write("\b \b");
+            }
+            continue;
+        }
+        if (char === "\u0003") {
+            session.commandBuffer = "";
+            session.terminal.write("^C\r\n");
+            sendCliInput(session.projectKey, "\u0003");
+            continue;
+        }
+        if (char >= " " || char === "\t") {
+            session.commandBuffer += char;
+            session.terminal.write(char);
+        }
+    }
 }
 
 async function closeProjectTab(key) {
@@ -1624,8 +1680,9 @@ listen("soloncode-ready", (e) => {
 
 window.addEventListener("resize", () => {
     for (const frame of projectFrames.values()) {
-        const surface = frame.querySelector?.(".terminal-surface");
-        if (surface) syncTerminalInputPosition(surface);
+        const projectKey = frame.dataset?.projectKey;
+        const session = projectKey ? terminalSessions.get(projectKey) : null;
+        if (session) fitXtermTerminal(session);
     }
 });
 
@@ -1696,112 +1753,6 @@ async function sendCliInput(projectKey, input) {
     } catch (e) {
         appendLog(formatError(e), project.workspace_key, project.name);
     }
-}
-
-function renderAnsiTerminalOutput(element, text, pendingInput = "") {
-    element.textContent = "";
-    let currentClass = "";
-    let lastIndex = 0;
-    const ansiPattern = /\x1b\[([0-9;]*)m/g;
-
-    for (const match of text.matchAll(ansiPattern)) {
-        appendTerminalText(element, text.slice(lastIndex, match.index), currentClass);
-        currentClass = getAnsiClass(match[1], currentClass);
-        lastIndex = match.index + match[0].length;
-    }
-    appendTerminalText(element, stripAnsiControls(text.slice(lastIndex)), currentClass);
-    if (pendingInput) element.appendChild(document.createTextNode(pendingInput));
-    const caret = document.createElement("span");
-    caret.className = "terminal-caret";
-    element.appendChild(caret);
-}
-
-function appendTerminalText(element, text, className) {
-    const cleanText = stripAnsiControls(text);
-    if (!cleanText) return;
-    if (!className) {
-        element.appendChild(document.createTextNode(cleanText));
-        return;
-    }
-    const span = document.createElement("span");
-    span.className = className;
-    span.textContent = cleanText;
-    element.appendChild(span);
-}
-
-function stripAnsiControls(text) {
-    return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
-}
-
-function getAnsiClass(sequence, currentClass) {
-    const codes = sequence
-        .split(";")
-        .filter(Boolean)
-        .map((code) => Number.parseInt(code, 10));
-    if (codes.length === 0 || codes.includes(0)) return "";
-    let className = currentClass;
-    for (const code of codes) {
-        if (code === 1) className = appendAnsiClass(className, "ansi-bold");
-        if (code === 2) className = appendAnsiClass(className, "ansi-dim");
-        if (code === 22) className = className.replace(/\bansi-(bold|dim)\b/g, "").trim();
-    }
-    return className;
-}
-
-function appendAnsiClass(className, nextClass) {
-    return className.includes(nextClass) ? className : `${className} ${nextClass}`.trim();
-}
-
-function handleTerminalInput(event, input, projectKey) {
-    const project = runningProjects.get(projectKey);
-    if (!project || !input.value || event.isComposing) return;
-    project.terminal_input = (project.terminal_input || "") + input.value;
-    input.value = "";
-    updateProjectView(projectFrames.get(projectKey), project);
-}
-
-async function handleTerminalKeydown(event, projectKey) {
-    const project = runningProjects.get(projectKey);
-    if (!project) return;
-
-    if (event.key === "Enter") {
-        event.preventDefault();
-        const input = project.terminal_input || "";
-        project.terminal_input = "";
-        updateProjectView(projectFrames.get(projectKey), project);
-        if (input.trim()) await sendCliInput(projectKey, input);
-        return;
-    }
-
-    if (event.key === "Backspace") {
-        if (!event.currentTarget.value) {
-            event.preventDefault();
-            project.terminal_input = (project.terminal_input || "").slice(0, -1);
-            updateProjectView(projectFrames.get(projectKey), project);
-        }
-        return;
-    }
-
-    if (event.key === "Escape") {
-        event.preventDefault();
-        project.terminal_input = "";
-        updateProjectView(projectFrames.get(projectKey), project);
-        return;
-    }
-
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") {
-        return;
-    }
-}
-
-function handleTerminalPaste(event, projectKey) {
-    const project = runningProjects.get(projectKey);
-    if (!project) return;
-    const pastedText = event.clipboardData?.getData("text") || "";
-    if (!pastedText) return;
-    event.preventDefault();
-    project.terminal_input = (project.terminal_input || "") + pastedText.replace(/\r/g, "");
-    updateProjectView(projectFrames.get(projectKey), project);
 }
 
 listen("soloncode-cli-output", (e) => {
