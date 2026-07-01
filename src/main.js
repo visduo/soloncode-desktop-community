@@ -1684,11 +1684,8 @@ async function handleRun(workspace = selectedWorkspace, target = RUN_TARGETS.web
         appendLog(`📁 本次启动工作区: ${targetWorkspace || "用户目录"}`, workspaceKey, workspaceDisplayName);
         if (target === RUN_TARGETS.cliSystem) {
             await invoke("open_soloncode_system_terminal", { workspace: targetWorkspace });
-            appendLog(
-                `✅ 就绪: 已打开系统终端，请关注系统终端状态: ${workspaceDisplayName}`,
-                workspaceKey,
-                workspaceDisplayName
-            );
+            appendLog(`✅ 已打开系统终端，请关注系统终端状态`, workspaceKey, workspaceDisplayName);
+            appendLog(`✅ 就绪: ${workspaceDisplayName}`, workspaceKey, workspaceDisplayName);
             setStatus(
                 runningProjects.size > 0 ? "部分工作区运行中" : "未启动",
                 runningProjects.size > 0 ? "running" : "installed"
