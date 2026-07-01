@@ -459,6 +459,7 @@ function getRunningProjectByWorkspace(workspace) {
 
 function toggleWorkspaceMenu(workspaceKey) {
     openWorkspaceMenuKey = openWorkspaceMenuKey === workspaceKey ? null : workspaceKey;
+    openRunMenuKey = null;
     renderWorkspaces();
 }
 
@@ -941,6 +942,8 @@ function setWorkspacePinned(path, pinned) {
 function setSelectedWorkspace(path) {
     selectedWorkspace = path || null;
     localStorage.setItem("soloncode.selectedWorkspace", selectedWorkspace || "");
+    openWorkspaceMenuKey = null;
+    openRunMenuKey = null;
     renderWorkspaces();
     renderLogs();
     refreshButtons();

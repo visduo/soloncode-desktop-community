@@ -499,8 +499,8 @@ button {
     z-index: 5;
     display: grid;
     place-items: center;
-    width: 42px;
-    height: 42px;
+    width: 32px;
+    height: 32px;
     border: 1px solid rgba(148, 163, 184, 0.34);
     border-radius: 999px;
     background: rgba(15, 23, 42, 0.72);
@@ -520,8 +520,8 @@ button {
 }
 
 .terminal-settings-button .app-icon {
-    width: 19px;
-    height: 19px;
+    width: 15px;
+    height: 15px;
 }
 
 @media (max-width: 640px) {
