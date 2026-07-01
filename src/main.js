@@ -553,8 +553,18 @@ function showJavaPrompt() {
     queuePrompt({
         key: "missing-java",
         title: "缺少 Java 环境",
-        message: "未检测到 Java 运行环境，请先安装 Java 后再安装/启动 SolonCode CLI。",
-        actions: [{ label: "知道了", primary: true, handler: closePromptDialog }]
+        message: "未检测到 Java 运行环境，请先安装 Java 运行环境后再安装/启动 SolonCode CLI。",
+        actions: [
+            { label: "知道了", primary: false, handler: closePromptDialog },
+            {
+                label: "快速下载环境",
+                primary: true,
+                handler: async () => {
+                    closePromptDialog();
+                    await invoke("open_external_url", { url: "https://www.flyenv.com/zh/download.html" });
+                }
+            }
+        ]
     });
 }
 
@@ -574,7 +584,7 @@ function showUpdatePrompts(info) {
         queuePrompt({
             key: `studio-update-${studioLatest}`,
             title: "Studio 可更新",
-            message: `SolonCode Studio ${studioLatest} 已发布，请从官网下载最新安装包。`,
+            message: `SolonCode Studio 有新版本，请从官网下载最新安装包。`,
             actions: [
                 { label: "稍后", primary: false, handler: closePromptDialog },
                 /**
@@ -1393,7 +1403,7 @@ async function handleRun(workspace = selectedWorkspace, target = RUN_TARGETS.web
     if (!isJavaAvailable) {
         showJavaPrompt();
         appendLog(
-            formatError("未检测到 Java 运行环境，请先安装 Java 后再启动 SolonCode"),
+            formatError("未检测到 Java 运行环境，请先安装 Java 运行环境后再启动 SolonCode"),
             workspaceKey,
             getWorkspaceName(targetWorkspace)
         );
