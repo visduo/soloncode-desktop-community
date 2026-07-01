@@ -902,7 +902,7 @@ function createProjectView(project) {
         frame.className = "project-frame web-page-frame";
         frame.src = withStudioParam(project.url);
         frame.referrerPolicy = "no-referrer";
-        frame.allow = "fullscreen; clipboard-read; clipboard-write";
+        frame.allow = "fullscreen; clipboard-read; clipboard-write *";
         updateProjectView(frame, project);
         return frame;
     }
@@ -931,6 +931,7 @@ function createProjectView(project) {
 
     const frame = document.createElement("iframe");
     frame.className = "project-frame";
+    frame.allow = "clipboard-write *";
     updateProjectView(frame, project);
     return frame;
 }
